@@ -1,0 +1,37 @@
+meta {
+  name: Health Check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Database status is connected", function() {
+    const data = res.getBody();
+    expect(data.status).to.equal("ok");
+    expect(data.database).to.equal("connected");
+    expect(data.timestamp).to.be.a('string');
+  });
+}
+
+docs {
+  Checks whether the Express backend is running and actively connected to the PostgreSQL database.
+  
+  Expected Response:
+  ```json
+  {
+    "status": "ok",
+    "database": "connected",
+    "timestamp": "2026-10-08T13:00:00.000Z"
+  }
+  ```
+}

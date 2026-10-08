@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: woo-telegram-manager-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-woo_user}:${POSTGRES_PASSWORD:-woo_password}@postgres:5432/${POSTGRES_DB:-woo_telegram_manager}?schema=public
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
+      - PUBLIC_BACKEND_URL=${PUBLIC_BACKEND_URL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - woo_network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: woo-telegram-manager-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-woo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-woo_password}
+      POSTGRES_DB: ${POSTGRES_DB:-woo_telegram_manager}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-woo_user} -d ${POSTGRES_DB:-woo_telegram_manager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - woo_network
+
+volumes:
+  postgres_data:
+    name: woo_telegram_manager_data
+
+networks:
+  woo_network:
+    name: woo_telegram_manager_network

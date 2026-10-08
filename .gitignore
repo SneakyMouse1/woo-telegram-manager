@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+
+# Environment configuration
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE & editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Plugin zip archives (built via scripts, do not commit)
+*.zip
+
+# Prisma & temporary files
+*.sqlite
+*.sqlite-journal
+prisma/prisma-studio-*
+scratch/
+

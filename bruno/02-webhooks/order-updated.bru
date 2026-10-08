@@ -1,0 +1,71 @@
+meta {
+  name: Order Updated - Status Change
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/webhooks/woocommerce/{{storeId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  x-wc-webhook-topic: order.updated
+  x-wc-webhook-resource: order
+  x-wc-webhook-event: updated
+}
+
+body:json {
+  {
+    "id": 9901,
+    "number": "9901",
+    "status": "completed",
+    "currency": "EUR",
+    "currency_symbol": "€",
+    "total": "75.50",
+    "total_tax": "13.10",
+    "shipping_total": "4.95",
+    "payment_method": "stripe",
+    "billing": {
+      "first_name": "Jane",
+      "last_name": "Doe",
+      "phone": "+34612345678"
+    },
+    "line_items": [
+      {
+        "id": 1,
+        "name": "Demo Organic Face Cream 50ml",
+        "product_id": 101,
+        "quantity": 1,
+        "price": 70.50
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  const crypto = require('crypto');
+  const secret = bru.getEnvVar('webhookSecret');
+  if (secret) {
+    const rawBody = JSON.stringify(req.getBody());
+    const hmac = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+    req.setHeader('x-wc-webhook-signature', hmac);
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Order update received successfully", function() {
+    const data = res.getBody();
+    expect(data.received).to.equal(true);
+  });
+}
+
+docs {
+  Simulates an incoming `order.updated` webhook from WooCommerce when order status transitions (e.g. from `processing` to `completed`).
+}

@@ -1,0 +1,39 @@
+meta {
+  name: Webhook - Invalid Signature (401)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/webhooks/woocommerce/{{storeId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  x-wc-webhook-topic: order.created
+  x-wc-webhook-signature: invalid_fake_signature_hash=
+}
+
+body:json {
+  {
+    "id": 9999,
+    "status": "processing"
+  }
+}
+
+tests {
+  test("Status code is 401 Unauthorized", function() {
+    expect(res.getStatus()).to.equal(401);
+  });
+
+  test("Error message indicates invalid signature", function() {
+    const data = res.getBody();
+    expect(data.error).to.equal("Invalid webhook signature");
+  });
+}
+
+docs {
+  Verifies that the backend rejects webhooks with invalid HMAC signatures with HTTP 401 Unauthorized.
+}

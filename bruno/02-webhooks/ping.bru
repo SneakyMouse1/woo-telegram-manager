@@ -1,0 +1,51 @@
+meta {
+  name: WooCommerce Ping Test
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/webhooks/woocommerce/{{storeId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  x-wc-webhook-topic: action.woocommerce_webhook_ping
+  x-wc-webhook-id: 101
+}
+
+body:json {
+  {
+    "webhook_id": 101
+  }
+}
+
+script:pre-request {
+  const crypto = require('crypto');
+  const secret = bru.getEnvVar('webhookSecret');
+  if (secret) {
+    const rawBody = JSON.stringify(req.getBody());
+    const hmac = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+    req.setHeader('x-wc-webhook-signature', hmac);
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Ping response is ok", function() {
+    const data = res.getBody();
+    expect(data.status).to.equal("ok");
+    expect(data.type).to.equal("ping");
+  });
+}
+
+docs {
+  Simulates the WooCommerce ping verification webhook sent when creating or saving a webhook in WP Admin.
+  
+  Note: Requires a valid HMAC signature. If `webhookSecret` is set in the active Bruno environment, the pre-request script computes and attaches the `x-wc-webhook-signature` header automatically.
+}
