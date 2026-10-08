@@ -7,6 +7,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 ## Table of Contents
 
 - [Key Features](#key-features)
+- [Interface Preview](#interface-preview)
 - [Architecture & Isolation](#architecture--isolation)
 - [B2B Wholesale Detection & Customization](#b2b-wholesale-detection--customization)
 - [Database Schema](#database-schema)
@@ -31,6 +32,17 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 - **Catalog Search & Relevance** — Fast text search for products and brands with exact title priority and pagination. Search queries are cached server-side to keep callback payloads minimal.
 - **Financial Analytics (`/reports`)** — Sales metrics across flexible periods (7 days, month, quarter, year-to-date, previous year, custom years) and Top 10 customer leaderboards.
 - **Trilingual Localization** — Automatic Telegram client language matching with manual switching via `/language` for English (EN), Spanish (ES), and Russian (RU).
+
+---
+
+## Interface Preview
+
+| Order Notification & Actions | Financial Analytics (`/reports`) | Catalog Search & Pagination |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/order-card.png" width="280" alt="Order Notification Card"/> | <img src="docs/screenshots/reports.png" width="280" alt="Sales Reports"/> | <img src="docs/screenshots/catalog-search.png" width="280" alt="Catalog Search"/> |
+
+> [!TIP]
+> Real-time order alerts feature 1-tap status updates, direct WhatsApp chat links, and fee breakdowns. Sales reports and catalog search provide sub-second responses directly inside Telegram.
 
 ---
 
@@ -352,6 +364,8 @@ docker compose exec -it app npm run store:webhooks -- --store shop-a
 │   ├── test-access.ts             # Access control and store isolation test suite
 │   └── test-hmac.ts               # HMAC signature verification test suite
 ├── bruno/                         # Bruno API collection for health and webhooks
+├── docs/
+│   └── screenshots/               # Bot UI preview screenshots (order card, reports, catalog)
 └── src/
     ├── index.ts                   # Express server and bot bootstrapper
     ├── bot/
