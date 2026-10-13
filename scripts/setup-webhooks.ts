@@ -16,7 +16,7 @@ function parseCliArgs(): { storeName: string; dryRun: boolean } {
   }
 
   if (!storeName) {
-    console.error('Использование: npx tsx scripts/setup-webhooks.ts --store <name> [--dry-run]');
+    console.error('Usage: npx tsx scripts/setup-webhooks.ts --store <name> [--dry-run]');
     process.exit(1);
   }
 
@@ -33,24 +33,24 @@ async function main() {
   });
 
   if (!store) {
-    console.error(`❌ Магазин "${storeName}" не найден в базе данных.`);
+    console.error(`❌ Store "${storeName}" not found in database.`);
     process.exit(1);
   }
 
-  console.log(`[SetupWebhooks] Найден магазин "${store.name}" (ID: ${store.id})`);
+  console.log(`[SetupWebhooks] Found store "${store.name}" (ID: ${store.id})`);
 
   const result = await provisionWebhooks(store, { dryRun });
 
   if (result.dryRun) {
-    console.log('[SetupWebhooks] [DRY RUN] План успешно проверен, изменения не внесены.');
+    console.log('[SetupWebhooks] [DRY RUN] Plan verified successfully. No changes made.');
   } else {
-    console.log(`✅ [SetupWebhooks] Вебхуки для магазина "${store.name}" успешно обновлены!`);
+    console.log(`✅ [SetupWebhooks] Webhooks for store "${store.name}" updated successfully!`);
   }
 }
 
 main()
   .catch((err) => {
-    console.error('❌ Ошибка выполнения setup-webhooks:', err);
+    console.error('❌ Error executing setup-webhooks:', err);
     process.exit(1);
   })
   .finally(async () => {

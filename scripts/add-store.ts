@@ -81,7 +81,7 @@ async function getSecret(envVar: string, promptText: string): Promise<string> {
     return process.env[envVar]!.trim();
   }
   if (!process.stdin.isTTY) {
-    throw new Error(`В неинтерактивном режиме необходимо задать переменную ${envVar}`);
+    throw new Error(`In non-interactive mode, the ${envVar} variable must be set`);
   }
   return promptHidden(promptText);
 }
@@ -106,14 +106,14 @@ async function parseOrPromptArgs(): Promise<{ name: string; url: string; dryRun:
 
   if (!name || !url) {
     if (!process.stdin.isTTY) {
-      console.error('Использование: npx tsx scripts/add-store.ts --name <slug> --url <https://...> [--dry-run]');
+      console.error('Usage: npx tsx scripts/add-store.ts --name <slug> --url <https://...> [--dry-run]');
       process.exit(1);
     }
     if (!name) {
-      name = await promptVisible('Введите slug магазина (до 16 символов, например shop-a): ');
+      name = await promptVisible('Enter store slug (up to 16 characters, e.g. shop-a): ');
     }
     if (!url) {
-      url = await promptVisible('Введите URL магазина (например https://example.com): ');
+      url = await promptVisible('Enter store URL (e.g. https://example.com): ');
     }
   }
 
@@ -126,72 +126,72 @@ async function main() {
   // 1. Validate slug name (1-16 chars, lowercase alphanumeric + hyphen)
   const slugRegex = /^[a-z0-9-]{1,16}$/;
   if (!slugRegex.test(name)) {
-    console.error(`❌ Неверный формат имени магазина "${name}". Допустимы только строчная латиница, цифры и дефис, длиной от 1 до 16 символов.`);
+    console.error(`❌ Invalid store name format "${name}". Only lowercase alphanumeric characters and hyphens (1-16 chars) are allowed.`);
     process.exit(1);
   }
 
   // 2. Validate URL (https, no trailing slash)
   let cleanUrl = rawUrl.replace(/\/+$/, '');
   if (!cleanUrl.startsWith('https://')) {
-    console.error('❌ URL магазина должен начинаться с https://');
+    console.error('❌ Store URL must start with https://');
     process.exit(1);
   }
 
   try {
     new URL(cleanUrl);
   } catch {
-    console.error(`❌ Некорректный URL: "${cleanUrl}"`);
+    console.error(`❌ Invalid URL: "${cleanUrl}"`);
     process.exit(1);
   }
 
   // 3. Check uniqueness in DB
   const existingName = await prisma.store.findUnique({ where: { name } });
   if (existingName) {
-    console.error(`❌ Магазин с именем "${name}" уже существует в базе данных.`);
+    console.error(`❌ Store with name "${name}" already exists in database.`);
     process.exit(1);
   }
 
   const existingUrl = await prisma.store.findUnique({ where: { url: cleanUrl } });
   if (existingUrl) {
-    console.error(`❌ Магазин с URL "${cleanUrl}" уже существует в базе данных.`);
+    console.error(`❌ Store with URL "${cleanUrl}" already exists in database.`);
     process.exit(1);
   }
 
   // 4. Request WooCommerce credentials (STORE_CK / STORE_CS or interactive prompt)
-  const ck = await getSecret('STORE_CK', '🔑 Введите WooCommerce Consumer Key (ck_...): ');
-  const cs = await getSecret('STORE_CS', '🔑 Введите WooCommerce Consumer Secret (cs_...): ');
+  const ck = await getSecret('STORE_CK', '🔑 Enter WooCommerce Consumer Key (ck_...): ');
+  const cs = await getSecret('STORE_CS', '🔑 Enter WooCommerce Consumer Secret (cs_...): ');
 
   const ckRegex = /^ck_[0-9a-fA-F]{40}$/;
   const csRegex = /^cs_[0-9a-fA-F]{40}$/;
 
   if (!ckRegex.test(ck)) {
-    console.error('❌ Consumer Key не соответствует формату ^ck_[0-9a-fA-F]{40}$');
+    console.error('❌ Consumer Key does not match format ^ck_[0-9a-fA-F]{40}$');
     process.exit(1);
   }
 
   if (!csRegex.test(cs)) {
-    console.error('❌ Consumer Secret не соответствует формату ^cs_[0-9a-fA-F]{40}$');
+    console.error('❌ Consumer Secret does not match format ^cs_[0-9a-fA-F]{40}$');
     process.exit(1);
   }
 
   // 5. Test connection to WooCommerce live before DB write
-  console.log(`[Store] Проверка подключения к WooCommerce (${cleanUrl})...`);
+  console.log(`[Store] Testing WooCommerce connection (${cleanUrl})...`);
   const testClient = new WooCommerceService(cleanUrl, ck, cs);
 
   try {
     await testClient.getOrders({ per_page: 1 });
-    console.log('✅ Подключение к WooCommerce успешно проверено!');
+    console.log('✅ WooCommerce connection verified successfully!');
   } catch (testErr) {
-    console.error('❌ Ошибка проверки ключей WooCommerce:', (testErr as Error).message);
+    console.error('❌ WooCommerce credentials verification failed:', (testErr as Error).message);
     process.exit(1);
   }
 
   if (dryRun) {
-    console.log('[Store] [DRY RUN] План добавления магазина:');
-    console.log(`  • Имя (slug): ${name}`);
+    console.log('[Store] [DRY RUN] Store addition plan:');
+    console.log(`  • Slug name: ${name}`);
     console.log(`  • URL: ${cleanUrl}`);
-    console.log(`  • Ключи проверены и валидны`);
-    console.log(`  • Запись в БД и настройка вебхуков пропущены (--dry-run).`);
+    console.log(`  • Credentials verified and valid`);
+    console.log(`  • Database write and webhook setup skipped (--dry-run).`);
     return;
   }
 
@@ -206,17 +206,17 @@ async function main() {
     },
   });
 
-  console.log(`✅ Магазин сохранён в БД: "${store.name}" (ID: ${store.id})`);
+  console.log(`✅ Store saved to DB: "${store.name}" (ID: ${store.id})`);
 
   // 7. Provision webhooks safely
   await provisionWebhooks(store);
 
-  console.log(`\n🎉 Магазин "${store.name}" (ID: ${store.id}) успешно добавлен и готов к работе!`);
+  console.log(`\n🎉 Store "${store.name}" (ID: ${store.id}) added successfully and ready to use!`);
 }
 
 main()
   .catch((err) => {
-    console.error('❌ Ошибка выполнения add-store:', err);
+    console.error('❌ Error executing add-store:', err);
     process.exit(1);
   })
   .finally(async () => {
