@@ -225,16 +225,8 @@ export function formatOrderMessage(
     keyboard.row();
   }
 
-  // 2. Quick status switch buttons
-  if (order.status !== 'processing') {
-    keyboard.text(dict.btnProcessing, `st:${storeSlug}:${order.id}:processing`);
-  }
-  if (order.status !== 'completed') {
-    keyboard.text(dict.btnCompleted, `st:${storeSlug}:${order.id}:completed`);
-  }
-  if (order.status !== 'on-hold') {
-    keyboard.text(dict.btnOnHold, `st:${storeSlug}:${order.id}:on-hold`);
-  }
+  // 2. Change status button
+  keyboard.text(dict.btnChangeStatus, `stm:${storeSlug}:${order.id}`);
   keyboard.row();
 
   // 3. Actions row: Refresh, WhatsApp, WP-Admin
@@ -256,6 +248,107 @@ export function formatOrderMessage(
   if (options?.showBackButton && !options?.nav) {
     keyboard.row().text(dict.btnBackToList, `ordm:${storeSlug}`);
   }
+
+  return { text, reply_markup: keyboard };
+}
+
+export const ORDER_STATUS_KEYS = [
+  'processing',
+  'completed',
+  'on-hold',
+  'pending',
+  'cancelled',
+  'refunded',
+  'failed',
+] as const;
+
+/**
+ * Renders the order status picker menu.
+ * Displays all possible WooCommerce statuses with current status highlighted.
+ */
+export function formatOrderStatusMenu(
+  order: WooOrder,
+  storeName?: string,
+  lang: SupportedLanguage = 'en'
+): { text: string; reply_markup: InlineKeyboard } {
+  const dict = t(lang);
+  const storeSlug = storeName ? encodeURIComponent(storeName.toLowerCase()) : 'store';
+  const currentBadge = getStatusBadge(order.status, lang);
+  const orderNumber = order.number || String(order.id);
+
+  let text = `🏷 <b>${dict.changeStatusTitle}</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `🛍 <b>${dict.orderTitle} #${escapeHtml(orderNumber)}</b>\n`;
+  if (storeName) {
+    text += `🏪 <b>${escapeHtml(storeName)}</b>\n`;
+  }
+  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  text += `${dict.currentStatus} ${currentBadge.emoji} <b>${currentBadge.label}</b>\n\n`;
+  text += `👇 <i>${dict.selectNewStatus}</i>`;
+
+  const keyboard = new InlineKeyboard();
+
+  // Display status options in 2 columns
+  for (let i = 0; i < ORDER_STATUS_KEYS.length; i += 2) {
+    const s1 = ORDER_STATUS_KEYS[i];
+    const s2 = ORDER_STATUS_KEYS[i + 1];
+
+    const b1 = getStatusBadge(s1, lang);
+    const isCurrent1 = order.status.toLowerCase() === s1.toLowerCase();
+    const label1 = isCurrent1 ? `✓ ${b1.label}` : `${b1.emoji} ${b1.label}`;
+    const cb1 = isCurrent1 ? 'stcurr' : `stask:${storeSlug}:${order.id}:${s1}`;
+    keyboard.text(label1, cb1);
+
+    if (s2) {
+      const b2 = getStatusBadge(s2, lang);
+      const isCurrent2 = order.status.toLowerCase() === s2.toLowerCase();
+      const label2 = isCurrent2 ? `✓ ${b2.label}` : `${b2.emoji} ${b2.label}`;
+      const cb2 = isCurrent2 ? 'stcurr' : `stask:${storeSlug}:${order.id}:${s2}`;
+      keyboard.text(label2, cb2);
+    }
+
+    keyboard.row();
+  }
+
+  // Back button to return to order view
+  keyboard.text(dict.btnBackToOrder, `ov:${storeSlug}:${order.id}`);
+
+  return { text, reply_markup: keyboard };
+}
+
+/**
+ * Renders the confirmation view before updating an order's status.
+ * Requires user confirmation to avoid accidental changes.
+ */
+export function formatOrderStatusConfirmation(
+  order: WooOrder,
+  newStatus: string,
+  storeName?: string,
+  lang: SupportedLanguage = 'en'
+): { text: string; reply_markup: InlineKeyboard } {
+  const dict = t(lang);
+  const storeSlug = storeName ? encodeURIComponent(storeName.toLowerCase()) : 'store';
+  const currentBadge = getStatusBadge(order.status, lang);
+  const targetBadge = getStatusBadge(newStatus, lang);
+  const targetStatusLabel = `${targetBadge.emoji} ${targetBadge.label}`;
+  const orderNumber = order.number || String(order.id);
+
+  let text = `⚠️ <b>${dict.confirmStatusTitle}</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `🛍 <b>${dict.orderTitle} #${escapeHtml(orderNumber)}</b>\n`;
+  if (storeName) {
+    text += `🏪 <b>${escapeHtml(storeName)}</b>\n`;
+  }
+  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  text += `${dict.confirmStatusPrompt(escapeHtml(orderNumber), targetStatusLabel)}\n\n`;
+  text += `▫️ ${dict.currentStatus} ${currentBadge.emoji} <b>${currentBadge.label}</b>\n`;
+  text += `▫️ <b>${dict.selectNewStatus.replace(':', '')}:</b> ${targetStatusLabel}`;
+
+  const keyboard = new InlineKeyboard();
+  keyboard.text(dict.btnConfirmChange, `stdo:${storeSlug}:${order.id}:${newStatus}`);
+  keyboard.row();
+  keyboard.text(dict.btnBackToStatusMenu, `stm:${storeSlug}:${order.id}`);
+  keyboard.text(dict.btnCancel, `ov:${storeSlug}:${order.id}`);
 
   return { text, reply_markup: keyboard };
 }

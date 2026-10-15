@@ -13,7 +13,14 @@ import {
   isRateLimited,
 } from './invites.js';
 import { storeSearchQuery, getSearchQuery } from './searchQueryStore.js';
-import { formatOrderMessage, escapeHtml, getStatusBadge, isB2BOrder } from './formatters/orderFormatter.js';
+import {
+  formatOrderMessage,
+  formatOrderStatusMenu,
+  formatOrderStatusConfirmation,
+  escapeHtml,
+  getStatusBadge,
+  isB2BOrder,
+} from './formatters/orderFormatter.js';
 import { formatBrandsList, formatBrandProducts, formatSearchResults } from './formatters/brandFormatter.js';
 import {
   formatSalesReport,
@@ -1013,9 +1020,86 @@ bot.callbackQuery(/^sel_menu:(\S+)$/, async (ctx) => {
 });
 
 /**
- * Change order status: st:<storeSlug>:<orderId>:<newStatus>
+ * Open status selection menu: stm:<storeSlug>:<orderId>
  */
-bot.callbackQuery(/^st:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
+bot.callbackQuery(/^stm:(\S+):(\d+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const orderId = ctx.match[2];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const order = await store.client.getOrder(orderId);
+    const { text, reply_markup } = formatOrderStatusMenu(order, store.name, lang);
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup,
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error opening status menu:', error);
+    try {
+      const msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch { }
+  }
+});
+
+/**
+ * Click on current status: stcurr
+ */
+bot.callbackQuery('stcurr', async (ctx) => {
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+  await ctx.answerCallbackQuery({ text: `ℹ️ ${dict.statusAlreadySet}` });
+});
+
+/**
+ * Ask confirmation to change order status: stask:<storeSlug>:<orderId>:<newStatus>
+ */
+bot.callbackQuery(/^stask:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const orderId = ctx.match[2];
+  const newStatus = ctx.match[3];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const order = await store.client.getOrder(orderId);
+    if (order.status.toLowerCase() === newStatus.toLowerCase()) {
+      await ctx.answerCallbackQuery({ text: `ℹ️ ${dict.statusAlreadySet}` });
+      return;
+    }
+
+    const { text, reply_markup } = formatOrderStatusConfirmation(order, newStatus, store.name, lang);
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup,
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error opening status confirmation:', error);
+    try {
+      const msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch { }
+  }
+});
+
+/**
+ * Confirmed change order status: stdo:<storeSlug>:<orderId>:<newStatus>
+ */
+bot.callbackQuery(/^stdo:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
   const storeSlug = decodeURIComponent(ctx.match[1]);
   const orderId = ctx.match[2];
   const newStatus = ctx.match[3];
@@ -1026,7 +1110,7 @@ bot.callbackQuery(/^st:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
   try {
     const store = await resolveStore(chatId, storeSlug, lang);
     const statusBadge = getStatusBadge(newStatus, lang);
-    await ctx.answerCallbackQuery({ text: `✅ ${statusBadge.label}` });
+    await ctx.answerCallbackQuery({ text: `✅ ${dict.statusChanged} ${statusBadge.label}` });
 
     await store.client.updateOrderStatus(orderId, newStatus);
     const formatted = await renderOrderCardWithNav(store, store.client, orderId, lang);
@@ -1038,6 +1122,43 @@ bot.callbackQuery(/^st:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
   } catch (error: any) {
     if (error?.description?.includes('message is not modified')) return;
     console.error('[Bot] Error updating order status:', error);
+    try {
+      const msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch { }
+  }
+});
+
+/**
+ * Legacy status click: st:<storeSlug>:<orderId>:<newStatus>
+ * Redirects to confirmation screen to avoid accidental changes on old messages.
+ */
+bot.callbackQuery(/^st:(\S+):(\d+):([a-z-]+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const orderId = ctx.match[2];
+  const newStatus = ctx.match[3];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const order = await store.client.getOrder(orderId);
+    if (order.status.toLowerCase() === newStatus.toLowerCase()) {
+      await ctx.answerCallbackQuery({ text: `ℹ️ ${dict.statusAlreadySet}` });
+      return;
+    }
+
+    const { text, reply_markup } = formatOrderStatusConfirmation(order, newStatus, store.name, lang);
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup,
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error routing legacy status callback:', error);
     try {
       const msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
       await ctx.answerCallbackQuery({ text: msg, show_alert: true });

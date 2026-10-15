@@ -38,6 +38,7 @@ export interface OrderTranslations {
 
   // Order Buttons
   btnOrders: string;
+  btnChangeStatus: string;
   btnProcessing: string;
   btnCompleted: string;
   btnOnHold: string;
@@ -45,6 +46,18 @@ export interface OrderTranslations {
   btnOrdersList: string;
   btnBackToList: string;
   btnWPAdmin: string;
+
+  // Status Change Flow
+  changeStatusTitle: string;
+  selectNewStatus: string;
+  currentStatus: string;
+  confirmStatusTitle: string;
+  confirmStatusPrompt: (orderNumber: string, statusLabel: string) => string;
+  btnConfirmChange: string;
+  btnCancel: string;
+  btnBackToStatusMenu: string;
+  btnBackToOrder: string;
+  statusAlreadySet: string;
 
   // Orders list
   ordersListTitle: string;

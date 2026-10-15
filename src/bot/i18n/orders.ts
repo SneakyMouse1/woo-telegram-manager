@@ -36,6 +36,7 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     store: 'Магазин',
 
     btnOrders: '🛍 Заказы',
+    btnChangeStatus: '🏷 Изменить статус',
     btnProcessing: '🟡 В обработку',
     btnCompleted: '🟢 Выполнен',
     btnOnHold: '🟠 На удержание',
@@ -43,6 +44,18 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnOrdersList: '📋 Список',
     btnBackToList: '🔙 К списку',
     btnWPAdmin: '🔗 WP-Admin ↗',
+
+    changeStatusTitle: 'Изменение статуса заказа',
+    selectNewStatus: 'Выберите новый статус:',
+    currentStatus: 'Текущий статус:',
+    confirmStatusTitle: 'Подтверждение изменения статуса',
+    confirmStatusPrompt: (orderNumber: string, statusLabel: string) =>
+      `Вы уверены в своем решении изменить статус заказа #${orderNumber} на «${statusLabel}»?`,
+    btnConfirmChange: '✅ Да, изменить',
+    btnCancel: '❌ Отмена',
+    btnBackToStatusMenu: '🔙 Выбрать другой',
+    btnBackToOrder: '🔙 К заказу',
+    statusAlreadySet: 'Этот статус уже установлен',
 
     ordersListTitle: 'ПОСЛЕДНИЕ ЗАКАЗЫ МАГАЗИНА',
     selectOrderHint: '👇 Нажмите на номер заказа, чтобы открыть детали и управлять:',
@@ -88,6 +101,7 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     store: 'Tienda',
 
     btnOrders: '🛍 Pedidos',
+    btnChangeStatus: '🏷 Cambiar estado',
     btnProcessing: '🟡 En proceso',
     btnCompleted: '🟢 Completado',
     btnOnHold: '🟠 En espera',
@@ -95,6 +109,18 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnOrdersList: '📋 Lista',
     btnBackToList: '🔙 A la lista',
     btnWPAdmin: '🔗 WP-Admin ↗',
+
+    changeStatusTitle: 'Cambiar estado del pedido',
+    selectNewStatus: 'Seleccione el nuevo estado:',
+    currentStatus: 'Estado actual:',
+    confirmStatusTitle: 'Confirmación de cambio de estado',
+    confirmStatusPrompt: (orderNumber: string, statusLabel: string) =>
+      `¿Está seguro de su decisión de cambiar el estado del pedido #${orderNumber} a «${statusLabel}»?`,
+    btnConfirmChange: '✅ Sí, cambiar',
+    btnCancel: '❌ Cancelar',
+    btnBackToStatusMenu: '🔙 Elegir otro',
+    btnBackToOrder: '🔙 Volver al pedido',
+    statusAlreadySet: 'Este estado ya está asignado',
 
     ordersListTitle: 'ÚLTIMOS PEDIDOS DE LA TIENDA',
     selectOrderHint: '👇 Pulsa en un pedido para ver los detalles y gestionarlo:',
@@ -140,6 +166,7 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     store: 'Store',
 
     btnOrders: '🛍 Orders',
+    btnChangeStatus: '🏷 Change status',
     btnProcessing: '🟡 Processing',
     btnCompleted: '🟢 Completed',
     btnOnHold: '🟠 On hold',
@@ -147,6 +174,18 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnOrdersList: '📋 List',
     btnBackToList: '🔙 To list',
     btnWPAdmin: '🔗 WP-Admin ↗',
+
+    changeStatusTitle: 'Change order status',
+    selectNewStatus: 'Select a new status:',
+    currentStatus: 'Current status:',
+    confirmStatusTitle: 'Confirm status change',
+    confirmStatusPrompt: (orderNumber: string, statusLabel: string) =>
+      `Are you sure you want to change the status of order #${orderNumber} to "${statusLabel}"?`,
+    btnConfirmChange: '✅ Yes, change',
+    btnCancel: '❌ Cancel',
+    btnBackToStatusMenu: '🔙 Choose another',
+    btnBackToOrder: '🔙 Back to order',
+    statusAlreadySet: 'This status is already set',
 
     ordersListTitle: 'RECENT STORE ORDERS',
     selectOrderHint: '👇 Tap an order number to open details and manage:',
