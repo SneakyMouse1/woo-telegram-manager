@@ -45,7 +45,6 @@ export interface OrderTranslations {
   btnRefresh: string;
   btnOrdersList: string;
   btnBackToList: string;
-  btnWPAdmin: string;
 
   // Status Change Flow
   changeStatusTitle: string;

@@ -229,7 +229,7 @@ export function formatOrderMessage(
   keyboard.text(dict.btnChangeStatus, `stm:${storeSlug}:${order.id}`);
   keyboard.row();
 
-  // 3. Actions row: Refresh, WhatsApp, WP-Admin
+  // 3. Actions row: Refresh, WhatsApp
   const rawPhone = order.billing?.phone || order.shipping?.phone;
   const waUrl = formatWhatsAppUrl(rawPhone);
 
@@ -237,11 +237,6 @@ export function formatOrderMessage(
 
   if (waUrl) {
     keyboard.url('💬 WhatsApp', waUrl);
-  }
-
-  if (storeUrl) {
-    const adminOrderUrl = `${storeUrl.replace(/\/+$/, '')}/wp-admin/post.php?post=${order.id}&action=edit`;
-    keyboard.url(dict.btnWPAdmin, adminOrderUrl);
   }
 
   // 4. Back button row if requested without nav

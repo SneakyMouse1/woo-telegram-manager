@@ -43,7 +43,6 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnRefresh: '🔄 Обновить',
     btnOrdersList: '📋 Список',
     btnBackToList: '🔙 К списку',
-    btnWPAdmin: '🔗 WP-Admin ↗',
 
     changeStatusTitle: 'Изменение статуса заказа',
     selectNewStatus: 'Выберите новый статус:',
@@ -108,7 +107,6 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnRefresh: '🔄 Actualizar',
     btnOrdersList: '📋 Lista',
     btnBackToList: '🔙 A la lista',
-    btnWPAdmin: '🔗 WP-Admin ↗',
 
     changeStatusTitle: 'Cambiar estado del pedido',
     selectNewStatus: 'Seleccione el nuevo estado:',
@@ -173,7 +171,6 @@ export const orderTranslations: Record<SupportedLanguage, OrderTranslations> = {
     btnRefresh: '🔄 Refresh',
     btnOrdersList: '📋 List',
     btnBackToList: '🔙 To list',
-    btnWPAdmin: '🔗 WP-Admin ↗',
 
     changeStatusTitle: 'Change order status',
     selectNewStatus: 'Select a new status:',
