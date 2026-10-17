@@ -1,7 +1,11 @@
 import { Bot, InlineKeyboard } from 'grammy';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
-import type { WooOrder, WooProduct, WooBrand } from '../services/woocommerceService.js';
+import type { WooOrder, WooProduct, WooBrand, WooProductVariation } from '../services/woocommerceService.js';
+import {
+  WooCommerceWritePermissionError,
+  WooCommerceAuthError,
+} from '../services/woocommerceService.js';
 import {
   resolveStore,
   getAccessibleStoresForChat,
@@ -22,6 +26,12 @@ import {
   isB2BOrder,
 } from './formatters/orderFormatter.js';
 import { formatBrandsList, formatBrandProducts, formatSearchResults } from './formatters/brandFormatter.js';
+import { formatProductCard, formatVariationCard } from './formatters/productFormatter.js';
+import {
+  setPendingStockInput,
+  getPendingStockInput,
+  clearPendingStockInput,
+} from './stockInputStore.js';
 import {
   formatSalesReport,
   formatTopCustomers,
@@ -95,6 +105,24 @@ bot.use(async (ctx, next) => {
     return;
   }
 
+  return await next();
+});
+
+/**
+ * Stock input reset middleware:
+ * Clears pending stock number input mode on any command or callback (except si:).
+ */
+bot.use(async (ctx, next) => {
+  const chatId = ctx.chat?.id;
+  if (chatId) {
+    const isCommand = Boolean(ctx.message?.text?.startsWith('/'));
+    const isCallback = Boolean(ctx.callbackQuery);
+    const isSiCallback = Boolean(ctx.callbackQuery?.data?.startsWith('si:'));
+
+    if (isCommand || (isCallback && !isSiCallback)) {
+      clearPendingStockInput(chatId);
+    }
+  }
   return await next();
 });
 
@@ -853,6 +881,137 @@ bot.on('message:text', async (ctx) => {
   const lang = await getUserLanguage(chatId, ctx.from?.language_code);
   const dict = t(lang);
 
+  // Check pending stock number input mode before search
+  const pending = getPendingStockInput(chatId);
+  if (pending) {
+    const trimmed = query.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      await ctx.reply(dict.invalidStockQuantity);
+      return;
+    }
+
+    const newQty = parseInt(trimmed, 10);
+    clearPendingStockInput(chatId);
+
+    // Delete prompt message if available
+    if (pending.promptMessageId) {
+      try {
+        await ctx.api.deleteMessage(chatId, pending.promptMessageId);
+      } catch {}
+    }
+    // Delete user's typed message to keep chat clean
+    try {
+      await ctx.deleteMessage();
+    } catch {}
+
+    try {
+      const store = await resolveStore(chatId, pending.slug, lang);
+
+      if (pending.variationId) {
+        // Variation update
+        const [parentProduct, variation] = await Promise.all([
+          store.client.getProduct(pending.productId),
+          store.client.getProductVariation(pending.productId, pending.variationId),
+        ]);
+
+        if (variation.manage_stock === 'parent') {
+          if (parentProduct.manage_stock !== true) {
+            await ctx.reply(dict.stockNotManaged);
+            return;
+          }
+          await store.client.updateProduct(parentProduct.id, { stock_quantity: newQty });
+        } else if (variation.manage_stock === true) {
+          await store.client.updateProductVariation(pending.productId, pending.variationId, {
+            stock_quantity: newQty,
+          });
+        } else {
+          await ctx.reply(dict.stockNotManaged);
+          return;
+        }
+
+        const [freshParent, freshVar] = await Promise.all([
+          store.client.getProduct(pending.productId),
+          store.client.getProductVariation(pending.productId, pending.variationId),
+        ]);
+
+        const formatted = formatVariationCard(
+          freshParent,
+          freshVar,
+          pending.slug,
+          pending.vpage || 1,
+          pending.origin,
+          lang,
+          store.name
+        );
+
+        if (pending.cardMessageId) {
+          try {
+            await ctx.api.editMessageText(chatId, pending.cardMessageId, formatted.text, {
+              parse_mode: 'HTML',
+              reply_markup: formatted.reply_markup,
+            });
+            return;
+          } catch {}
+        }
+        await ctx.reply(formatted.text, {
+          parse_mode: 'HTML',
+          reply_markup: formatted.reply_markup,
+        });
+      } else {
+        // Parent product update
+        const freshProduct = await store.client.getProduct(pending.productId);
+        if (freshProduct.manage_stock !== true) {
+          await ctx.reply(dict.stockNotManaged);
+          return;
+        }
+
+        await store.client.updateProduct(pending.productId, { stock_quantity: newQty });
+
+        const [updatedProduct, variations] = await Promise.all([
+          store.client.getProduct(pending.productId),
+          freshProduct.type === 'variable'
+            ? store.client.getProductVariations(pending.productId, { per_page: 100 })
+            : Promise.resolve([]),
+        ]);
+
+        const formatted = formatProductCard(
+          updatedProduct,
+          pending.slug,
+          pending.origin,
+          variations,
+          pending.vpage || 1,
+          5,
+          lang,
+          store.name
+        );
+
+        if (pending.cardMessageId) {
+          try {
+            await ctx.api.editMessageText(chatId, pending.cardMessageId, formatted.text, {
+              parse_mode: 'HTML',
+              reply_markup: formatted.reply_markup,
+            });
+            return;
+          } catch {}
+        }
+        await ctx.reply(formatted.text, {
+          parse_mode: 'HTML',
+          reply_markup: formatted.reply_markup,
+        });
+      }
+    } catch (err: any) {
+      console.error('[Bot] Error updating stock quantity via input:', err);
+      if (err instanceof WooCommerceWritePermissionError) {
+        await ctx.reply(dict.stockWritePermissionError);
+      } else if (err instanceof WooCommerceAuthError) {
+        await ctx.reply(dict.stockAuthError);
+      } else {
+        await ctx.reply(`${dict.errorPrefix} ${err?.message || err}`);
+      }
+    }
+    return;
+  }
+
   const accessibleStores = await getAccessibleStoresForChat(chatId);
   if (accessibleStores.length === 0) {
     await ctx.reply(dict.noStore);
@@ -1488,6 +1647,13 @@ bot.callbackQuery(/^srch:(\S+):(\d+):([0-9a-fA-F]{8})$/, async (ctx) => {
 
   if (!query) {
     await ctx.answerCallbackQuery({ text: dict.searchExpired, show_alert: true });
+    try {
+      const kb = new InlineKeyboard().text(dict.btnAllBrands, `brp:${encodeURIComponent(storeSlug)}:1`);
+      await ctx.editMessageText(`⚠️ <i>${dict.searchExpired}</i>`, {
+        parse_mode: 'HTML',
+        reply_markup: kb,
+      });
+    } catch {}
     return;
   }
 
@@ -1536,6 +1702,349 @@ bot.callbackQuery(/^srch:(\S+):(\d+):([0-9a-fA-F]{8})$/, async (ctx) => {
       await ctx.answerCallbackQuery({ text: msg });
     } catch { }
   }
+});
+
+/**
+ * View product card: pc:<storeSlug>:<productId>:<origin>
+ */
+bot.callbackQuery(/^pc:(\S+?):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const origin = ctx.match[3];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const product = await store.client.getProduct(productId);
+    let variations: WooProductVariation[] = [];
+    if (product.type === 'variable') {
+      variations = await store.client.getProductVariations(productId, { per_page: 100 });
+    }
+
+    const formatted = formatProductCard(product, storeSlug, origin, variations, 1, 5, lang, store.name);
+    await ctx.editMessageText(formatted.text, {
+      parse_mode: 'HTML',
+      reply_markup: formatted.reply_markup,
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error viewing product card:', error);
+    let msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+    if (error instanceof WooCommerceWritePermissionError) {
+      msg = dict.stockWritePermissionError.slice(0, 150);
+    } else if (error instanceof WooCommerceAuthError) {
+      msg = dict.stockAuthError.slice(0, 150);
+    }
+    try {
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch {}
+  }
+});
+
+/**
+ * Variations page on product card: vp:<storeSlug>:<productId>:<vpage>:<origin>
+ */
+bot.callbackQuery(/^vp:(\S+?):(\d+):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const vpage = parseInt(ctx.match[3], 10);
+  const origin = ctx.match[4];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const [product, variations] = await Promise.all([
+      store.client.getProduct(productId),
+      store.client.getProductVariations(productId, { per_page: 100 }),
+    ]);
+
+    const formatted = formatProductCard(product, storeSlug, origin, variations, vpage, 5, lang, store.name);
+    await ctx.editMessageText(formatted.text, {
+      parse_mode: 'HTML',
+      reply_markup: formatted.reply_markup,
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error paginating variations:', error);
+    try {
+      const msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch {}
+  }
+});
+
+/**
+ * Product stock ±1 adjustment: ps:<storeSlug>:<productId>:<m|p>:<origin>
+ */
+bot.callbackQuery(/^ps:(\S+?):(\d+):(m|p):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const delta = ctx.match[3] === 'p' ? 1 : -1;
+  const origin = ctx.match[4];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+
+    // Fetch fresh product before updating
+    const freshProduct = await store.client.getProduct(productId);
+    if (freshProduct.manage_stock !== true) {
+      await ctx.answerCallbackQuery({ text: dict.stockNotManaged, show_alert: true });
+      return;
+    }
+
+    const currentQty = freshProduct.stock_quantity ?? 0;
+    const nextQty = currentQty + delta;
+    if (nextQty < 0) {
+      await ctx.answerCallbackQuery({ text: dict.stockCannotBeNegative, show_alert: true });
+      return;
+    }
+
+    await store.client.updateProduct(productId, { stock_quantity: nextQty });
+
+    // Re-fetch fresh product & variations
+    const [updatedProduct, variations] = await Promise.all([
+      store.client.getProduct(productId),
+      freshProduct.type === 'variable'
+        ? store.client.getProductVariations(productId, { per_page: 100 })
+        : Promise.resolve([]),
+    ]);
+
+    await ctx.answerCallbackQuery({ text: dict.stockUpdatedToast(nextQty) });
+
+    const formatted = formatProductCard(updatedProduct, storeSlug, origin, variations, 1, 5, lang, store.name);
+    await ctx.editMessageText(formatted.text, {
+      parse_mode: 'HTML',
+      reply_markup: formatted.reply_markup,
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error adjusting product stock:', error);
+    let msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+    if (error instanceof WooCommerceWritePermissionError) {
+      msg = dict.stockWritePermissionError.slice(0, 150);
+    } else if (error instanceof WooCommerceAuthError) {
+      msg = dict.stockAuthError.slice(0, 150);
+    }
+    try {
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch {}
+  }
+});
+
+/**
+ * View variation card: vc:<storeSlug>:<productId>:<variationId>:<vpage>:<origin>
+ */
+bot.callbackQuery(/^vc:(\S+?):(\d+):(\d+):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const variationId = parseInt(ctx.match[3], 10);
+  const vpage = parseInt(ctx.match[4], 10);
+  const origin = ctx.match[5];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+    await ctx.answerCallbackQuery();
+
+    const [product, variation] = await Promise.all([
+      store.client.getProduct(productId),
+      store.client.getProductVariation(productId, variationId),
+    ]);
+
+    const formatted = formatVariationCard(product, variation, storeSlug, vpage, origin, lang, store.name);
+    await ctx.editMessageText(formatted.text, {
+      parse_mode: 'HTML',
+      reply_markup: formatted.reply_markup,
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error viewing variation card:', error);
+    let msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+    if (error instanceof WooCommerceWritePermissionError) {
+      msg = dict.stockWritePermissionError.slice(0, 150);
+    } else if (error instanceof WooCommerceAuthError) {
+      msg = dict.stockAuthError.slice(0, 150);
+    }
+    try {
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch {}
+  }
+});
+
+/**
+ * Variation stock ±1 adjustment: vs:<storeSlug>:<productId>:<variationId>:<m|p>:<vpage>:<origin>
+ */
+bot.callbackQuery(/^vs:(\S+?):(\d+):(\d+):(m|p):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const variationId = parseInt(ctx.match[3], 10);
+  const delta = ctx.match[4] === 'p' ? 1 : -1;
+  const vpage = parseInt(ctx.match[5], 10);
+  const origin = ctx.match[6];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  try {
+    const store = await resolveStore(chatId, storeSlug, lang);
+
+    const [parentProduct, variation] = await Promise.all([
+      store.client.getProduct(productId),
+      store.client.getProductVariation(productId, variationId),
+    ]);
+
+    let nextQty = 0;
+    if (variation.manage_stock === 'parent') {
+      if (parentProduct.manage_stock !== true) {
+        await ctx.answerCallbackQuery({ text: dict.stockNotManaged, show_alert: true });
+        return;
+      }
+      const currentQty = parentProduct.stock_quantity ?? 0;
+      nextQty = currentQty + delta;
+      if (nextQty < 0) {
+        await ctx.answerCallbackQuery({ text: dict.stockCannotBeNegative, show_alert: true });
+        return;
+      }
+      await store.client.updateProduct(parentProduct.id, { stock_quantity: nextQty });
+    } else if (variation.manage_stock === true) {
+      const currentQty = variation.stock_quantity ?? 0;
+      nextQty = currentQty + delta;
+      if (nextQty < 0) {
+        await ctx.answerCallbackQuery({ text: dict.stockCannotBeNegative, show_alert: true });
+        return;
+      }
+      await store.client.updateProductVariation(productId, variationId, { stock_quantity: nextQty });
+    } else {
+      await ctx.answerCallbackQuery({ text: dict.stockNotManaged, show_alert: true });
+      return;
+    }
+
+    const [freshParent, freshVar] = await Promise.all([
+      store.client.getProduct(productId),
+      store.client.getProductVariation(productId, variationId),
+    ]);
+
+    await ctx.answerCallbackQuery({ text: dict.stockUpdatedToast(nextQty) });
+
+    const formatted = formatVariationCard(freshParent, freshVar, storeSlug, vpage, origin, lang, store.name);
+    await ctx.editMessageText(formatted.text, {
+      parse_mode: 'HTML',
+      reply_markup: formatted.reply_markup,
+    });
+  } catch (error: any) {
+    if (error?.description?.includes('message is not modified')) return;
+    console.error('[Bot] Error adjusting variation stock:', error);
+    let msg = `${dict.errorPrefix} ${error?.message || error}`.slice(0, 150);
+    if (error instanceof WooCommerceWritePermissionError) {
+      msg = dict.stockWritePermissionError.slice(0, 150);
+    } else if (error instanceof WooCommerceAuthError) {
+      msg = dict.stockAuthError.slice(0, 150);
+    }
+    try {
+      await ctx.answerCallbackQuery({ text: msg, show_alert: true });
+    } catch {}
+  }
+});
+
+/**
+ * Initiate manual stock number input:
+ * For variation: si:<storeSlug>:<productId>:<variationId>:<vpage>:<origin>
+ * For product: si:<storeSlug>:<productId>:<origin>
+ */
+bot.callbackQuery(/^si:(\S+?):(\d+):(\d+):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const variationId = parseInt(ctx.match[3], 10);
+  const vpage = parseInt(ctx.match[4], 10);
+  const origin = ctx.match[5];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  await ctx.answerCallbackQuery();
+
+  const cancelKb = new InlineKeyboard().text(
+    dict.btnCancelInput,
+    `sc:${storeSlug}:${productId}:${variationId}:${vpage}:${origin}`
+  );
+
+  const promptMsg = await ctx.reply(dict.promptEnterStock, {
+    parse_mode: 'HTML',
+    reply_markup: cancelKb,
+  });
+
+  setPendingStockInput(chatId, {
+    slug: storeSlug,
+    productId,
+    variationId,
+    vpage,
+    origin,
+    cardMessageId: ctx.callbackQuery.message?.message_id,
+    promptMessageId: promptMsg.message_id,
+  });
+});
+
+bot.callbackQuery(/^si:(\S+?):(\d+):(.+)$/, async (ctx) => {
+  const storeSlug = decodeURIComponent(ctx.match[1]);
+  const productId = parseInt(ctx.match[2], 10);
+  const origin = ctx.match[3];
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  await ctx.answerCallbackQuery();
+
+  const cancelKb = new InlineKeyboard().text(
+    dict.btnCancelInput,
+    `sc:${storeSlug}:${productId}:${origin}`
+  );
+
+  const promptMsg = await ctx.reply(dict.promptEnterStock, {
+    parse_mode: 'HTML',
+    reply_markup: cancelKb,
+  });
+
+  setPendingStockInput(chatId, {
+    slug: storeSlug,
+    productId,
+    origin,
+    cardMessageId: ctx.callbackQuery.message?.message_id,
+    promptMessageId: promptMsg.message_id,
+  });
+});
+
+/**
+ * Cancel manual stock number input:
+ * For variation: sc:<storeSlug>:<productId>:<variationId>:<vpage>:<origin>
+ * For product: sc:<storeSlug>:<productId>:<origin>
+ */
+bot.callbackQuery(/^sc:(\S+?):(\d+)(?::(\d+):(\d+))?:(.+)$/, async (ctx) => {
+  const chatId = ctx.chat?.id || 0;
+  const lang = await getUserLanguage(chatId, ctx.from?.language_code);
+  const dict = t(lang);
+
+  clearPendingStockInput(chatId);
+  await ctx.answerCallbackQuery({ text: dict.stockInputCancelled });
+
+  try {
+    await ctx.deleteMessage();
+  } catch {}
 });
 
 bot.callbackQuery('noop', async (ctx) => {

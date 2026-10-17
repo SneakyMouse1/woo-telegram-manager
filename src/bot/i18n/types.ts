@@ -224,9 +224,14 @@ export interface ErrorTranslations {
   storeInactive: string;
 }
 
+export type { StockTranslations } from './stock.js';
+import type { StockTranslations } from './stock.js';
+
 export type TranslationDictionary = OrderTranslations &
   ReportTranslations &
   BrandTranslations &
   PairingTranslations &
   CommonTranslations &
-  ErrorTranslations;
+  ErrorTranslations &
+  StockTranslations;
+

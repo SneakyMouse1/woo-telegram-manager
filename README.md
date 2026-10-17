@@ -15,6 +15,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 - [Environment Configuration](#environment-configuration)
 - [Store Management via CLI](#store-management-via-cli)
 - [Telegram Bot Commands & Roles](#telegram-bot-commands--roles)
+- [Product Stock Management](#product-stock-management)
 - [Testing Suite](#testing-suite)
 - [Production Deployment](#production-deployment)
 - [Project Structure](#project-structure)
@@ -25,6 +26,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 
 - **Multi-Store Management (N-Stores)** — Single backend and bot instance managing multiple isolated WooCommerce stores (e.g. `shop-a`, `shop-b`).
 - **Strict Store Isolation** — Managers only see and interact with stores they are explicitly assigned to. All bot callbacks enforce store-level permission checks.
+- **Product Stock Management** — Manage product and variation stock directly in Telegram with ±1 adjustments, exact number input mode (2-min TTL), and variable product support.
 - **Real-Time Order Notifications** — Instant Telegram alerts for incoming orders (`order.created`, `order.updated`) delivered via store-scoped webhooks (`/api/webhooks/woocommerce/:storeId`).
 - **One-Tap Status Updates** — Inline keyboards to change order statuses (`Processing`, `Completed`, `On-Hold`) directly from Telegram with instant order card refresh.
 - **WhatsApp Integration** — Instant direct chat links (`https://wa.me/<phone>`) with automatic international E.164 phone formatting.
@@ -283,6 +285,39 @@ Managers only receive access via invite deep-links:
 
 ---
 
+## Product Stock Management
+
+Managers can inspect and adjust inventory levels directly in Telegram without logging into the WordPress admin panel:
+
+### 1. Unified Product Card & Actions
+- **Entry Points**: Products listed in Brand Catalogs (`/brands`) and text search results are clickable inline buttons leading directly to the product card.
+- **Product Details**: Displays title, SKU, price (with active sale comparison), stock quantity badge (🟢 / 🟠 Low / 🔴 Out of stock), and direct store link.
+- **Stock Adjustments**:
+  - `➖ 1` / `➕ 1`: Instantly updates stock by ±1. Fresh stock data is retrieved from WooCommerce right before writing to avoid race conditions. Negative stock (`< 0`) is blocked.
+  - `🔢 Set number`: Prompts manager to enter an exact stock number.
+  - `🔙 Back`: Returns smoothly to the originating list (brand catalog page or text search page).
+
+### 2. Number Input Mode
+- **State Storage**: In-memory `chatId -> { slug, productId, variationId?, origin, ... }` with a 2-minute TTL (`STOCK_INPUT_TTL_MS`).
+- **Input Validation**: Accepts non-negative integers (`0`, `5`, `10`). Non-numeric, decimal, or negative inputs show a clear localized error while keeping the input mode active.
+- **Centralized Reset Middleware**: The input mode is automatically cleared by any slash command (`/start`, `/orders`, etc.), any inline button callback (except the prompt activator `si:`), the `[❌ Cancel]` button, or TTL expiration.
+- **Clean Chat UX**: The prompt message is automatically deleted upon number entry, and the original card is updated in-place.
+
+### 3. Variable Products (`type: "variable"`)
+- **Parent Management**: If parent product has `manage_stock = true`, stock buttons appear on the parent card alongside the variations list.
+- **Variations List**: Displays variations with attributes (e.g. `50 ml / Red (12 pcs)`) paginated by 5 items per page.
+- **Variation Cards**:
+  - `manage_stock = true`: Offers `➖ 1`, `➕ 1`, and `🔢 Set number` buttons targeting `PUT /products/:id/variations/:varId`.
+  - `manage_stock = "parent"`: Stock is shared with parent product; updates write to parent (`PUT /products/:id`). If parent has `manage_stock = false`, indicates unmanaged stock without write buttons.
+  - `manage_stock = false`: Indicates *"Stock is not tracked"*; write buttons are omitted without altering WooCommerce settings.
+
+### 4. Security & Callback Limit
+- **Telegram Limit Guarantee**: All callback data payloads (`pc:`, `vp:`, `ps:`, `vc:`, `vs:`, `si:`, `sc:`) strictly stay below Telegram's 64-byte limit (worst-case is 56 bytes, tested in `npm run test:access`).
+- **Write Permission Verification**: Distinguishes between authentication errors (401) and missing write permissions (`woocommerce_rest_cannot_edit`), giving actionable instructions to generate Read/Write keys in WooCommerce.
+- **Cross-Store Isolation**: Every stock modification resolves through `resolveStore(chatId, slug)`, completely preventing unauthorized cross-store stock changes.
+
+---
+
 ## Testing Suite
 
 The repository includes standalone automated test suites verifying critical security boundaries:
@@ -291,7 +326,7 @@ The repository includes standalone automated test suites verifying critical secu
 # Run HMAC webhook verification suite (9 tests)
 npm run test:hmac
 
-# Run store isolation and access control suite (10 tests)
+# Run store isolation, access control & callback length suite (12 tests)
 npm run test:access
 ```
 
@@ -312,6 +347,8 @@ npm run test:access
   - Admin implicit multi-store access.
   - Multi-store manager access across assigned stores.
   - Invite activation preserving existing user profile while attaching additional store membership.
+  - Cross-store stock update protection (Manager of Store A cannot update stock in Store B).
+  - Telegram `callback_data` limit compliance (<= 64 bytes) under worst-case parameters across all stock callbacks.
 
 ---
 

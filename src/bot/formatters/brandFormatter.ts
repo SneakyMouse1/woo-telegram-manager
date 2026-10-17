@@ -131,6 +131,16 @@ export function formatBrandProducts(
 
   const keyboard = new InlineKeyboard();
 
+  // Buttons for products
+  pageProducts.forEach((p, idx) => {
+    const num = startIdx + idx + 1;
+    let label = `${num}. ${p.name}`;
+    if (label.length > 36) {
+      label = `${label.slice(0, 33)}...`;
+    }
+    keyboard.text(`📦 ${label}`, `pc:${storeSlug}:${p.id}:b:${brand.id}:${currentPage}`).row();
+  });
+
   // Pagination navigation
   if (totalPages > 1) {
     if (currentPage > 1) {
@@ -285,6 +295,17 @@ export function formatSearchResults(
         text += `\n🔗 <a href="${escapeHtml(p.permalink)}">${dict.viewProduct}</a>`;
       }
       text += `</blockquote>\n\n`;
+    });
+
+    // Buttons for products in search results
+    pageProducts.forEach((p, idx) => {
+      const num = startIdx + idx + 1;
+      let label = `${num}. ${p.name}`;
+      if (label.length > 36) {
+        label = `${label.slice(0, 33)}...`;
+      }
+      const origin = queryKey ? `s:${queryKey}:${currentPage}` : `s:_:1`;
+      keyboard.text(`📦 ${label}`, `pc:${storeSlug}:${p.id}:${origin}`).row();
     });
 
     // Pagination for search results using compact 8-char queryKey

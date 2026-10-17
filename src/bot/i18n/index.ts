@@ -7,6 +7,7 @@ import { brandTranslations } from './brands.js';
 import { pairingTranslations } from './pairing.js';
 import { commonTranslations } from './common.js';
 import { errorTranslations } from './errors.js';
+import { stockTranslations } from './stock.js';
 
 export * from './types.js';
 
@@ -18,6 +19,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...pairingTranslations.ru,
     ...commonTranslations.ru,
     ...errorTranslations.ru,
+    ...stockTranslations.ru,
   },
   es: {
     ...orderTranslations.es,
@@ -26,6 +28,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...pairingTranslations.es,
     ...commonTranslations.es,
     ...errorTranslations.es,
+    ...stockTranslations.es,
   },
   en: {
     ...orderTranslations.en,
@@ -34,6 +37,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...pairingTranslations.en,
     ...commonTranslations.en,
     ...errorTranslations.en,
+    ...stockTranslations.en,
   },
 };
 

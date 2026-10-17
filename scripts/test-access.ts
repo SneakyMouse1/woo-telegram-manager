@@ -140,6 +140,56 @@ function runAccessTests() {
     activationRes.label === 'Старший менеджер' && activationRes.addedToStore === storeB.id
   );
 
+  // Scenario 11: Cross-store stock update protection (Manager of Store A cannot update stock in Store B)
+  const stockUpdateAccess = canAccessStore({
+    chatId: USER_A_CHAT_ID,
+    adminChatId: ADMIN_ID,
+    user: { isActive: true },
+    store: storeB,
+    isStoreMember: false,
+  });
+  assert(
+    '11. Store A manager cannot modify product stock in Store B (access denied before API call)',
+    stockUpdateAccess.allowed === false
+  );
+
+  // Scenario 12: Telegram callback_data length limit (<= 64 bytes) under worst-case parameters
+  const maxSlug = '1234567890123456'; // 16 characters max store slug
+  const maxProdId = 99999999;        // 8 digits
+  const maxVarId = 88888888;         // 8 digits
+  const maxVpage = 99;               // 2 digits
+  const maxOriginSearch = 's:abcdef12:99'; // search origin: prefix + 8-char hex queryKey + 2-digit page
+  const maxOriginBrand = 'b:123456:99';    // brand origin: prefix + 6-digit brandId + 2-digit page
+
+  const sampleCallbacks = [
+    `pc:${maxSlug}:${maxProdId}:${maxOriginSearch}`,
+    `pc:${maxSlug}:${maxProdId}:${maxOriginBrand}`,
+    `vp:${maxSlug}:${maxProdId}:${maxVpage}:${maxOriginSearch}`,
+    `ps:${maxSlug}:${maxProdId}:m:${maxOriginSearch}`,
+    `ps:${maxSlug}:${maxProdId}:p:${maxOriginSearch}`,
+    `vc:${maxSlug}:${maxProdId}:${maxVarId}:${maxVpage}:${maxOriginSearch}`,
+    `vs:${maxSlug}:${maxProdId}:${maxVarId}:m:${maxVpage}:${maxOriginSearch}`,
+    `vs:${maxSlug}:${maxProdId}:${maxVarId}:p:${maxVpage}:${maxOriginSearch}`,
+    `si:${maxSlug}:${maxProdId}:${maxVarId}:${maxVpage}:${maxOriginSearch}`,
+    `sc:${maxSlug}:${maxProdId}:${maxVarId}:${maxVpage}:${maxOriginSearch}`,
+  ];
+
+  let allCallbacksFit = true;
+  let maxFoundLen = 0;
+  for (const cb of sampleCallbacks) {
+    const len = Buffer.byteLength(cb, 'utf8');
+    if (len > maxFoundLen) maxFoundLen = len;
+    if (len > 64) {
+      allCallbacksFit = false;
+      console.error(`    Callback exceeds 64 bytes (${len} bytes): "${cb}"`);
+    }
+  }
+
+  assert(
+    `12. All stock callbacks fit into 64-byte Telegram limit (max observed: ${maxFoundLen} bytes <= 64 bytes)`,
+    allCallbacksFit && maxFoundLen <= 64
+  );
+
   console.log(`\n📊 Tests completed: ${passed}/${total} passed.`);
 
   if (passed !== total) {

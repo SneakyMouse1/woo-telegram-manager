@@ -77,11 +77,8 @@ export interface WooBrand {
   image?: { id?: number; src: string } | null;
 }
 
-export interface WooProduct {
+export interface WooProductVariation {
   id: number;
-  name: string;
-  slug: string;
-  permalink?: string;
   sku?: string;
   price: string;
   regular_price?: string;
@@ -89,10 +86,55 @@ export interface WooProduct {
   on_sale?: boolean;
   stock_status: 'instock' | 'outofstock' | 'onbackorder' | string;
   stock_quantity: number | null;
+  manage_stock: boolean | 'parent';
+  attributes: Array<{ id: number; name: string; option: string }>;
+  image?: { id: number; src: string; alt?: string };
+  permalink?: string;
+}
+
+export interface WooProduct {
+  id: number;
+  name: string;
+  slug: string;
+  permalink?: string;
+  sku?: string;
+  type?: 'simple' | 'variable' | 'grouped' | 'external' | string;
+  price: string;
+  regular_price?: string;
+  sale_price?: string;
+  on_sale?: boolean;
+  stock_status: 'instock' | 'outofstock' | 'onbackorder' | string;
+  stock_quantity: number | null;
   manage_stock?: boolean;
+  variations?: number[];
   images?: Array<{ id: number; src: string; alt?: string }>;
   attributes?: Array<{ id: number; name: string; slug: string; options: string[] }>;
   meta_data?: Array<{ key: string; value: any }>;
+}
+
+export class WooCommerceError extends Error {
+  status?: number;
+  code?: string;
+  constructor(message: string, status?: number, code?: string) {
+    super(message);
+    this.name = 'WooCommerceError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export class WooCommerceWritePermissionError extends WooCommerceError {
+  constructor(message = 'WooCommerce REST API key does not have write permissions') {
+    super(message, 403, 'woocommerce_rest_cannot_edit');
+    this.name = 'WooCommerceWritePermissionError';
+  }
+}
+
+export class WooCommerceAuthError extends WooCommerceError {
+  constructor(message = 'WooCommerce REST API authentication failed') {
+    super(message, 401, 'woocommerce_rest_authentication_error');
+    this.name = 'WooCommerceAuthError';
+  }
 }
 
 export interface WooSalesReportTotalsDay {
@@ -166,16 +208,25 @@ export class WooCommerceService {
 
     if (!response.ok) {
       const errorText = await response.text();
+      let errorCode = '';
       let errorMessage = `WooCommerce API Error (${response.status}): ${response.statusText}`;
       try {
         const errorJson = JSON.parse(errorText);
+        if (errorJson.code) errorCode = String(errorJson.code);
         if (errorJson.message) {
           errorMessage = `WooCommerce Error: ${errorJson.message}`;
         }
       } catch {
         if (errorText) errorMessage += ` - ${errorText.slice(0, 150)}`;
       }
-      throw new Error(errorMessage);
+
+      if (errorCode === 'woocommerce_rest_cannot_edit') {
+        throw new WooCommerceWritePermissionError(errorMessage);
+      }
+      if (response.status === 401 || errorCode === 'woocommerce_rest_authentication_error') {
+        throw new WooCommerceAuthError(errorMessage);
+      }
+      throw new WooCommerceError(errorMessage, response.status, errorCode);
     }
 
     const data = (await response.json()) as T;
@@ -291,6 +342,59 @@ export class WooCommerceService {
    */
   async getProduct(productId: number | string): Promise<WooProduct> {
     return this.request<WooProduct>(`/products/${productId}`);
+  }
+
+  /**
+   * Update single product (e.g. stock_quantity)
+   */
+  async updateProduct(
+    productId: number | string,
+    data: { stock_quantity?: number; manage_stock?: boolean; [key: string]: any }
+  ): Promise<WooProduct> {
+    return this.request<WooProduct>(`/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get variations for a variable product
+   */
+  async getProductVariations(
+    productId: number | string,
+    params?: { per_page?: number; page?: number }
+  ): Promise<WooProductVariation[]> {
+    const query = new URLSearchParams();
+    query.set('per_page', (params?.per_page || 100).toString());
+    if (params?.page) query.set('page', params.page.toString());
+    const queryString = query.toString();
+    return this.request<WooProductVariation[]>(
+      `/products/${productId}/variations${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Get single variation of a product
+   */
+  async getProductVariation(
+    productId: number | string,
+    variationId: number | string
+  ): Promise<WooProductVariation> {
+    return this.request<WooProductVariation>(`/products/${productId}/variations/${variationId}`);
+  }
+
+  /**
+   * Update single variation of a product
+   */
+  async updateProductVariation(
+    productId: number | string,
+    variationId: number | string,
+    data: { stock_quantity?: number; manage_stock?: boolean | string; [key: string]: any }
+  ): Promise<WooProductVariation> {
+    return this.request<WooProductVariation>(`/products/${productId}/variations/${variationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   /**
