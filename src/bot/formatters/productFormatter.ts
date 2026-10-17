@@ -111,11 +111,12 @@ export function formatProductCard(
 
   const keyboard = new InlineKeyboard();
 
-  // 1. If stock is managed on product, add -1 / +1 / Set number buttons
+  // 1. If stock is managed on product, add -1 / +1 in row 1, and Set number in row 2
   if (product.manage_stock === true) {
     keyboard
       .text('➖ 1', `ps:${slug}:${product.id}:m:${origin}`)
       .text('➕ 1', `ps:${slug}:${product.id}:p:${origin}`)
+      .row()
       .text(dict.btnSetStock, `si:${slug}:${product.id}:${origin}`)
       .row();
   }
@@ -225,11 +226,12 @@ export function formatVariationCard(
 
   const keyboard = new InlineKeyboard();
 
-  // If editable, add stock buttons
+  // If editable, add stock buttons (-1 / +1 in row 1, Set number in row 2)
   if (canManage) {
     keyboard
       .text('➖ 1', `vs:${slug}:${product.id}:${variation.id}:m:${vpage}:${origin}`)
       .text('➕ 1', `vs:${slug}:${product.id}:${variation.id}:p:${vpage}:${origin}`)
+      .row()
       .text(dict.btnSetStock, `si:${slug}:${product.id}:${variation.id}:${vpage}:${origin}`)
       .row();
   }
