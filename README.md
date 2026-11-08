@@ -16,6 +16,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 - [Store Management via CLI](#store-management-via-cli)
 - [Telegram Bot Commands & Roles](#telegram-bot-commands--roles)
 - [Product Stock Management](#product-stock-management)
+- [Brand Discounts Management (`/discounts`)](#brand-discounts-management-discounts)
 - [Testing Suite](#testing-suite)
 - [Production Deployment](#production-deployment)
 - [Project Structure](#project-structure)
@@ -27,6 +28,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 - **Multi-Store Management (N-Stores)** — Single backend and bot instance managing multiple isolated WooCommerce stores (e.g. `shop-a`, `shop-b`).
 - **Strict Store Isolation** — Managers only see and interact with stores they are explicitly assigned to. All bot callbacks enforce store-level permission checks.
 - **Product Stock Management** — Manage product and variation stock directly in Telegram with ±1 adjustments, exact number input mode (2-min TTL), and variable product support.
+- **Brand Discounts Management (`/discounts`)** — Admin-only control over store-wide brand sales via the WordPress `wc-brand-sale/v1` REST API, featuring a multi-group creation wizard, persistent Prisma drafts (`SaleDraft`, 24h TTL), `Europe/Madrid` timezone scheduling (date or exact date-time), and live editing of running sales. Companion WordPress plugin included in `wordpress/wc-brand-sale.php`.
 - **Real-Time Order Notifications** — Instant Telegram alerts for incoming orders (`order.created`, `order.updated`) delivered via store-scoped webhooks (`/api/webhooks/woocommerce/:storeId`).
 - **One-Tap Status Updates** — Inline keyboards to change order statuses (`Processing`, `Completed`, `On-Hold`) directly from Telegram with instant order card refresh.
 - **WhatsApp Integration** — Instant direct chat links (`https://wa.me/<phone>`) with automatic international E.164 phone formatting.
@@ -157,6 +159,10 @@ Managed via Prisma (`prisma/schema.prisma`):
   - `storeId` (UUID, references `Store.id`, `onDelete: Cascade`)
   - `createdAt` (DateTime)
   - Primary key: `@@id([chatId, storeId])`
+- **`SaleDraft`** (`sale_drafts`)
+  - `telegramId` (BigInt, primary key, admin Telegram ID)
+  - `data` (Json, serialized wizard state: `groups`, `currentGroupBrands`, `start`, `startNow`, `end`, `step`)
+  - `updatedAt` (DateTime, `@updatedAt` — drafts automatically expire after 24 hours)
 
 ---
 
@@ -198,6 +204,9 @@ cp .env.example .env
 | `TRUST_PROXY_HOPS` | No | Number of reverse proxy hops to trust (default: `1`) | `1` |
 | `DEBUG` | No | Enable verbose debug logging | `false` |
 | `SETUP_BOT_METADATA` | No | Sync bot command descriptions on startup | `false` |
+| `WP_URL` | No | WordPress site URL (HTTPS) for `/discounts` (`wc-brand-sale/v1` API) | `https://shop.example.com` |
+| `WP_USER` | No | WordPress username with `manage_woocommerce` capability | `admin_bot` |
+| `WP_APP_PASSWORD` | No | WordPress Application Password (`xxxx xxxx ...`) | `abcd efgh ijkl mnop qrst uvwx` |
 
 ---
 
@@ -265,6 +274,7 @@ The administrator has unrestricted access to all active stores and user manageme
 | `/orders [store]` | Lists recent orders across all stores with status badges and page navigation. |
 | `/brands [store]` | Browses catalog brands and products with stock and pricing. |
 | `/reports [store]` | Displays sales analytics (7 Days, Month, 3M, 6M, YTD, Last Year, Custom Year, Top Customers). |
+| `/discounts` | *(Admin-only, hidden from public menu)* Opens the Brand Discounts menu to view/edit the active sale, launch the multi-group sale creation wizard, or end a sale immediately. |
 | `/language` | Switches preferred interface language (`ru`, `en`, `es`). |
 | `/help` | Displays usage guide. |
 
@@ -318,9 +328,41 @@ Managers can inspect and adjust inventory levels directly in Telegram without lo
 
 ---
 
+## Brand Discounts Management (`/discounts`)
+
+The master administrator (`ADMIN_CHAT_ID`) can manage store-wide brand sales via the WordPress `wc-brand-sale/v1` REST API (`GET/PUT/DELETE /wp-json/wc-brand-sale/v1/brand-sale` and `GET /wp-json/wc-brand-sale/v1/brands`). Product prices are calculated dynamically on the WordPress side by the companion PHP snippet ([`wordpress/wc-brand-sale.php`](file:///Users/simonsmyslov/Desktop/WorkProjects/woo-telegram-manager/wordpress/wc-brand-sale.php)); the bot reads and writes the single sale configuration object (`{ start, end, discounts }`).
+
+### 1. Access Control & WordPress Client (`wpBrandSale`)
+- **Strict Admin Isolation**: Every `/discounts` command, `sd:*` inline callback, and sale text input is guarded by `ADMIN_CHAT_ID`. Store managers never see the "🏷 Discounts" button and receive an access denied response if they invoke `/discounts`.
+- **Resilient REST Client**: Uses Basic Auth (`WP_USER` + `WP_APP_PASSWORD`) over HTTPS with a 15-second `AbortSignal.timeout`, structured error mapping (`400`, `401/403`, `404`, `5xx`, timeout), and a 5-minute in-memory brand list cache (`getBrands()`, `invalidateBrandsCache()`).
+
+### 2. Current Sale View & Live Editing
+- **Status & Grouping**: Displays status (`🟢 Active` or `🕒 Scheduled`), `Europe/Madrid` start/end dates formatted via `Intl.DateTimeFormat`, configuration `version`, and brands grouped by discount percentage in descending order.
+- **Modify Running or Scheduled Sales**:
+  - **Edit Brand Discount / Remove Brand**: Change the percentage (`1–99%`) for an individual brand or remove a brand from the sale (removing the last remaining brand is blocked with a hint to use "End sale now").
+  - **Change Dates**: Accepts either date-only (`dd.mm.yyyy` → `00:00:00` for start, `23:59:59` for end in `Europe/Madrid`) or exact date-time (`dd.mm.yyyy hh:mm` or `dd.mm.yyyy hh:mm:ss`).
+  - **End Sale Immediately**: Two-step confirmation (`DELETE /wp-json/wc-brand-sale/v1/brand-sale`) that sets `end = now - 1` and bumps `version`.
+- **Single-Write Consistency**: Every edit fetches a fresh `getSale()` snapshot right before mutating and performs a single `PUT /brand-sale` call.
+
+### 3. New Sale Wizard & Persistent Drafts (`SaleDraft`)
+- **Multi-Group Brand Selection**:
+  - Brands are displayed in a 2-column paginated grid (20 brands per page, `product_brand` taxonomy).
+  - Brands already assigned to earlier discount groups in the draft are marked with `🔒` and locked from re-selection.
+  - Supports adding multiple discount groups (`[➕ Add another group]`) or proceeding to date selection (`[➡️ Proceed to dates]`).
+- **Persistent Prisma Drafts (`sale_drafts`)**:
+  - Saved in PostgreSQL after every wizard action and survives bot restarts.
+  - Drafts older than 24 hours (`updatedAt`) are automatically discarded on read.
+  - If an unfinished draft exists when clicking "New sale", the bot prompts `[▶️ Resume draft]` or `[🗑 Start over]`.
+- **Validation & Safety**:
+  - **Deferred `startNow` Resolution**: When `[⚡ Now]` is chosen, `startNow: true` is stored in the draft and the actual Unix timestamp (`Math.floor(Date.now() / 1000)`) is computed at final confirmation (`Confirm`).
+  - **Deleted Brand Pruning**: On draft resume and before `saveSale()`, brands are cross-checked against a fresh `getBrands()` list; any brand deleted from WordPress is pruned from the draft with a warning.
+  - **Active Sale Overwrite Warning**: If `getSale()` reports `active: true` at confirmation time, the bot displays a dedicated warning screen (`[✅ Yes, replace]` / `[❌ Cancel]`) before overwriting the running sale.
+
+---
+
 ## Testing Suite
 
-The repository includes standalone automated test suites verifying critical security boundaries:
+The repository includes standalone automated test suites verifying critical security boundaries and business logic:
 
 ```bash
 # Run HMAC webhook verification suite (9 tests)
@@ -328,6 +370,13 @@ npm run test:hmac
 
 # Run store isolation, access control & callback length suite (12 tests)
 npm run test:access
+
+# Run Brand Discounts unit & wizard scenario suite (45 tests)
+npm run test:sale
+
+# Run live/staging WordPress Brand Sale API integration check (read-only by default)
+npm run test:sale:integration
+npm run test:sale:integration -- --dry-run
 ```
 
 ### Test Coverage
@@ -349,6 +398,11 @@ npm run test:access
   - Invite activation preserving existing user profile while attaching additional store membership.
   - Cross-store stock update protection (Manager of Store A cannot update stock in Store B).
   - Telegram `callback_data` limit compliance (<= 64 bytes) under worst-case parameters across all stock callbacks.
+- **`test:sale`**:
+  - `wpBrandSaleClient` HTTP methods, Basic Auth header, 5-minute brand cache & invalidation, error codes (`400`, `401/403`, `404`, `500`), and timeout handling.
+  - `Europe/Madrid` timezone conversion across CET (`UTC+1`) and CEST (`UTC+2`) DST boundaries, plus `dd.mm.yyyy` and `dd.mm.yyyy hh:mm[:ss]` parsing.
+  - Pure mutation helpers (`applyBrandDiscountUpdate`, `applyBrandRemoval` with last-brand protection, `applyDatesUpdate`) and `saleInputStore` 10-minute TTL & reset rules.
+  - `SaleDraft` 24-hour TTL expiration, multi-group brand locking (`🔒`), deferred `startNow` timestamp calculation on confirm, deleted WordPress brand pruning, active sale overwrite confirmation flow, and non-admin access rejection.
 
 ---
 
@@ -391,15 +445,24 @@ docker compose exec -it app npm run store:webhooks -- --store shop-a
 ├── tsconfig.json                  # TypeScript compiler configuration
 ├── prisma.config.ts               # Prisma CLI configuration
 ├── prisma/
-│   ├── schema.prisma              # Store, ChatUser, StoreMember schema
+│   ├── schema.prisma              # Store, ChatUser, StoreMember, SaleDraft schema
 │   └── migrations/
 │       ├── migration_lock.toml    # Lock file for PostgreSQL provider
-│       └── 20261008140500_init/   # Baseline clean database migration
+│       ├── 20261008140500_init/   # Baseline clean database migration
+│       └── 20261108013500_add_sale_draft/ # SaleDraft table migration (sale_drafts)
 ├── scripts/
 │   ├── add-store.ts               # Interactive store creation CLI
 │   ├── setup-webhooks.ts          # Webhook provisioning & rotation CLI
 │   ├── test-access.ts             # Access control and store isolation test suite
-│   └── test-hmac.ts               # HMAC signature verification test suite
+│   ├── test-hmac.ts               # HMAC signature verification test suite
+│   └── test-wp-brand-sale.ts      # Live/staging WordPress brand-sale integration verifier
+├── tests/
+│   ├── wpBrandSaleClient.test.ts  # Unit tests for wpBrandSale REST client & cache
+│   ├── saleTimeAndLogic.test.ts   # Unit tests for Europe/Madrid time & sale mutations
+│   └── saleDraftAndWizard.test.ts # Unit & scenario tests for SaleDraft & /discounts wizard
+├── wordpress/
+│   ├── wc-brand-sale.php          # Companion WordPress plugin for dynamic brand discounts
+│   └── README.md                  # WordPress plugin installation guide
 ├── bruno/                         # Bruno API collection for health and webhooks
 ├── docs/
 │   └── screenshots/               # Bot UI preview screenshots (order card, reports, catalog)
@@ -413,7 +476,14 @@ docker compose exec -it app npm run store:webhooks -- --store shop-a
     │   │   ├── brandFormatter.ts  # Catalog, brand products, and search results
     │   │   ├── orderFormatter.ts  # Detailed order cards, status badges, and actions
     │   │   └── reportFormatter.ts # Financial analytics and Top 10 customer rankings
-    │   └── i18n/                  # Trilingual localization (RU, EN, ES)
+    │   ├── i18n/                  # Trilingual localization (RU, EN, ES) + sale strings
+    │   └── sale/                  # Admin-only Brand Discounts (/discounts) module
+    │       ├── madridTime.ts      # Europe/Madrid date/time parsing & formatting
+    │       ├── saleDraft.ts       # Persistent Prisma SaleDraft store (24h TTL) & helpers
+    │       ├── saleFormatter.ts   # Telegram HTML views & inline keyboards for /discounts
+    │       ├── saleHandlers.ts    # grammY handlers for /discounts & New Sale wizard
+    │       ├── saleInputStore.ts  # In-memory text input state (10-min TTL)
+    │       └── saleLogic.ts       # Validation, grouping, and immutable sale mutations
     ├── config/
     │   ├── env.ts                 # Strict Zod environment variable validation
     │   └── prisma.ts              # Database connection and BigInt serializer
@@ -428,7 +498,9 @@ docker compose exec -it app npm run store:webhooks -- --store shop-a
     ├── services/
     │   ├── storeResolver.ts       # resolveStore with strict membership checks
     │   ├── webhookProvisioner.ts  # WooCommerce REST API webhook provisioning logic
-    │   └── woocommerceService.ts  # WooCommerce REST API client wrapper
+    │   ├── woocommerceService.ts  # WooCommerce REST API client wrapper
+    │   ├── wpBrandSale.ts         # Singleton wpBrandSale service configured from env
+    │   └── wpBrandSaleClient.ts   # WordPress wc-brand-sale/v1 REST client with 5-min brand cache
     └── utils/
         ├── accessControl.ts       # Pure access control logic for stores
         ├── crypto.ts              # AES-256-GCM encryption & decryption

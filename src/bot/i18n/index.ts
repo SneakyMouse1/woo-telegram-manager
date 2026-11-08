@@ -8,6 +8,7 @@ import { pairingTranslations } from './pairing.js';
 import { commonTranslations } from './common.js';
 import { errorTranslations } from './errors.js';
 import { stockTranslations } from './stock.js';
+import { saleTranslations } from './sale.js';
 
 export * from './types.js';
 
@@ -20,6 +21,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...commonTranslations.ru,
     ...errorTranslations.ru,
     ...stockTranslations.ru,
+    ...saleTranslations.ru,
   },
   es: {
     ...orderTranslations.es,
@@ -29,6 +31,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...commonTranslations.es,
     ...errorTranslations.es,
     ...stockTranslations.es,
+    ...saleTranslations.es,
   },
   en: {
     ...orderTranslations.en,
@@ -38,6 +41,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     ...commonTranslations.en,
     ...errorTranslations.en,
     ...stockTranslations.en,
+    ...saleTranslations.en,
   },
 };
 

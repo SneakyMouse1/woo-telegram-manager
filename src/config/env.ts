@@ -46,6 +46,20 @@ const envSchema = z
           .optional()
       ),
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+    // WordPress brand-sale REST API (wc-brand-sale/v1). Optional: the "Discounts" menu is disabled when unset.
+    WP_URL: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim() !== '' ? val.trim().replace(/\/+$/, '') : undefined))
+      .pipe(z.string().url('WP_URL must be a valid URL').startsWith('https://', 'WP_URL must use https://').optional()),
+    WP_USER: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim() !== '' ? val.trim() : undefined)),
+    WP_APP_PASSWORD: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim() !== '' ? val.trim() : undefined)),
     DEBUG: booleanFlag,
     SETUP_BOT_METADATA: booleanFlag,
   })

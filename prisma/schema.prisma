@@ -51,3 +51,12 @@ model StoreMember {
   @@index([storeId])
   @@map("store_members")
 }
+
+/// Persistent wizard draft for creating a new brand sale
+model SaleDraft {
+  telegramId BigInt   @id @map("telegram_id")
+  data       Json
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("sale_drafts")
+}

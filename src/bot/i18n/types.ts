@@ -226,6 +226,8 @@ export interface ErrorTranslations {
 
 export type { StockTranslations } from './stock.js';
 import type { StockTranslations } from './stock.js';
+export type { SaleTranslations } from './sale.js';
+import type { SaleTranslations } from './sale.js';
 
 export type TranslationDictionary = OrderTranslations &
   ReportTranslations &
@@ -233,5 +235,6 @@ export type TranslationDictionary = OrderTranslations &
   PairingTranslations &
   CommonTranslations &
   ErrorTranslations &
-  StockTranslations;
+  StockTranslations &
+  SaleTranslations;
 

@@ -18,6 +18,9 @@ services:
       - PUBLIC_BACKEND_URL=${PUBLIC_BACKEND_URL}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}
+      - WP_URL=${WP_URL:-}
+      - WP_USER=${WP_USER:-}
+      - WP_APP_PASSWORD=${WP_APP_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy

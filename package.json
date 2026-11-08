@@ -15,7 +15,9 @@
     "store:add": "tsx scripts/add-store.ts",
     "store:webhooks": "tsx scripts/setup-webhooks.ts",
     "test:hmac": "tsx scripts/test-hmac.ts",
-    "test:access": "tsx scripts/test-access.ts"
+    "test:access": "tsx scripts/test-access.ts",
+    "test:sale": "tsx --test tests/*.test.ts",
+    "test:sale:integration": "tsx scripts/test-wp-brand-sale.ts"
   },
   "keywords": [
     "woocommerce",

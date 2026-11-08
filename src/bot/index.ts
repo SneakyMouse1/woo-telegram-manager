@@ -46,6 +46,7 @@ import {
   t,
   type SupportedLanguage,
 } from './i18n/index.js';
+import { registerSaleHandlers, handleSaleTextInput } from './sale/saleHandlers.js';
 
 export const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
@@ -858,6 +859,9 @@ bot.command('help', async (ctx) => {
   });
 });
 
+// Admin-only brand discounts menu (/discounts and s:* callbacks)
+registerSaleHandlers(bot);
+
 interface SearchCacheEntry {
   products: WooProduct[];
   brands: WooBrand[];
@@ -876,6 +880,8 @@ function getSearchCacheKey(storeId: string, query: string): string {
 bot.on('message:text', async (ctx) => {
   const query = ctx.message.text.trim();
   if (query.startsWith('/')) return;
+
+  if (await handleSaleTextInput(ctx)) return;
 
   const chatId = ctx.chat.id;
   const lang = await getUserLanguage(chatId, ctx.from?.language_code);
