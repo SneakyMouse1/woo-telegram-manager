@@ -65,14 +65,14 @@ export function formatWhatsAppUrl(rawPhone?: string | null): string | null {
 
 /**
  * Detects whether an order is wholesale B2B or retail B2C.
- * By default, checks the B2BKing WordPress plugin metadata (`b2bking_is_b2b_order === 'yes'`)
- * or fallback corporate billing name (`billing.company`).
+ * Checks the authoritative B2BKing WordPress plugin metadata (`b2bking_is_b2b_order === 'yes'`).
+ * Orders with `b2bking_is_b2b_order: "no"` or without this meta key are treated as retail B2C.
  *
  * To customize for other plugins or custom meta keys, modify this function.
  */
 export function isB2BOrder(order: WooOrder): boolean {
   const b2bMeta = order.meta_data?.find((m) => m.key === 'b2bking_is_b2b_order');
-  return b2bMeta?.value === 'yes' || Boolean(order.billing?.company?.trim());
+  return b2bMeta?.value === 'yes';
 }
 
 export function formatOrderMessage(

@@ -88,8 +88,8 @@ The service automatically classifies orders as either wholesale **B2B** or retai
 ### Default Detection: B2BKing Plugin
 
 Out of the box, B2B classification is powered by the popular [B2BKing](https://woocommerce-b2b-plugin.com/) wholesale plugin for WooCommerce:
-1. Checks if `order.meta_data` contains `b2bking_is_b2b_order` with value `"yes"`.
-2. Fallback check: If `order.billing.company` is non-empty, the order is also treated as B2B.
+- Checks if `order.meta_data` contains `b2bking_is_b2b_order` with value `"yes"`.
+- Orders with `b2bking_is_b2b_order: "no"` or without this meta key are treated as retail B2C, regardless of whether a company name or tax ID is entered in `billing.company`.
 
 ### How to Customize for Your Own Plugins or Data
 
@@ -100,7 +100,7 @@ All B2B classification logic is centralized in a single helper function in [`src
 
 export function isB2BOrder(order: WooOrder): boolean {
   const b2bMeta = order.meta_data?.find((m) => m.key === 'b2bking_is_b2b_order');
-  return b2bMeta?.value === 'yes' || Boolean(order.billing?.company?.trim());
+  return b2bMeta?.value === 'yes';
 }
 ```
 
