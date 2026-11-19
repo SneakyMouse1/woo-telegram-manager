@@ -14,6 +14,8 @@ model Store {
   apiKeyEncrypted        String   @map("api_key_encrypted") @db.Text
   apiSecretEncrypted     String   @map("api_secret_encrypted") @db.Text
   webhookSecretEncrypted String?  @map("webhook_secret_encrypted") @db.Text
+  wpUserEncrypted        String?  @map("wp_user_encrypted") @db.Text
+  wpAppPasswordEncrypted String?  @map("wp_app_password_encrypted") @db.Text
   isActive               Boolean  @default(true) @map("is_active")
   createdAt              DateTime @default(now()) @map("created_at")
 
@@ -52,11 +54,13 @@ model StoreMember {
   @@map("store_members")
 }
 
-/// Persistent wizard draft for creating a new brand sale
+/// Persistent wizard draft for creating a new brand sale (scoped per user & store)
 model SaleDraft {
-  telegramId BigInt   @id @map("telegram_id")
+  telegramId BigInt   @map("telegram_id")
+  storeKey   String   @map("store_key") @db.VarChar(64)
   data       Json
   updatedAt  DateTime @updatedAt @map("updated_at")
 
+  @@id([telegramId, storeKey])
   @@map("sale_drafts")
 }

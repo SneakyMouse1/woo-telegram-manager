@@ -41,11 +41,14 @@ export async function resolveStore(
   if (storeIdentifier) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storeIdentifier);
 
-    // 1. Search by UUID or by short name slug
+    // 1. Search by UUID or by short name slug (case-insensitive)
     store = await prisma.store.findFirst({
       where: isUuid
-        ? { OR: [{ id: storeIdentifier }, { name: storeIdentifier }], isActive: true }
-        : { name: storeIdentifier, isActive: true },
+        ? {
+            OR: [{ id: storeIdentifier }, { name: { equals: storeIdentifier, mode: 'insensitive' } }],
+            isActive: true,
+          }
+        : { name: { equals: storeIdentifier, mode: 'insensitive' }, isActive: true },
     });
 
     if (!store) {
@@ -144,6 +147,7 @@ export async function getAccessibleStoresForChat(
     where: {
       chatId: chatBigInt,
       store: { isActive: true },
+      user: { isActive: true },
     },
     include: { store: true },
     orderBy: { createdAt: 'asc' },

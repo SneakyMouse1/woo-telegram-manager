@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "store:add": "tsx scripts/add-store.ts",
     "store:webhooks": "tsx scripts/setup-webhooks.ts",
+    "store:discounts": "tsx scripts/setup-discounts.ts",
     "test:hmac": "tsx scripts/test-hmac.ts",
     "test:access": "tsx scripts/test-access.ts",
     "test:sale": "tsx --test tests/*.test.ts",

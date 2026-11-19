@@ -21,6 +21,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
       '• <b>/orders</b> — Список последних заказов с возможностью менять статус\n' +
       '• <b>/brands</b> — Интерактивный каталог брендов, цены и остатки\n' +
       '• <b>/reports</b> — Финансовая статистика и аналитика продаж\n' +
+      '• <b>/discounts</b> — Управление скидками и акциями по брендам\n' +
       '• <b>/language</b> — Сменить язык бота (RU / ES / EN)\n' +
       '• <b>/help</b> — Данная справка\n\n' +
       '⚡️ <b>Уведомления:</b>\n' +
@@ -30,6 +31,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
     cmdOrders: 'Свежие заказы магазина',
     cmdBrands: 'Каталог брендов, остатки и цены',
     cmdReports: 'Финансовая аналитика и продажи',
+    cmdDiscounts: 'Скидки и акции по брендам',
     cmdHelp: 'Справка и список команд',
     cmdLanguage: 'Сменить язык интерфейса',
 
@@ -97,6 +99,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
       '• <b>/orders</b> — Lista de pedidos recientes y cambio de estado\n' +
       '• <b>/brands</b> — Catálogo interactivo de marcas, precios y stock\n' +
       '• <b>/reports</b> — Estadísticas financieras y analítica de ventas\n' +
+      '• <b>/discounts</b> — Gestión de descuentos y promociones por marca\n' +
       '• <b>/language</b> — Cambiar idioma (ES / RU / EN)\n' +
       '• <b>/help</b> — Esta ayuda\n\n' +
       '⚡️ <b>Notificaciones:</b>\n' +
@@ -106,6 +109,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
     cmdOrders: 'Pedidos recientes de la tienda',
     cmdBrands: 'Catálogo de marcas, precios y stock',
     cmdReports: 'Informes financieros y analítica',
+    cmdDiscounts: 'Descuentos y promociones por marca',
     cmdHelp: 'Ayuda y lista de comandos',
     cmdLanguage: 'Cambiar idioma de la interfaz',
 
@@ -173,6 +177,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
       '• <b>/orders</b> — Recent store orders & status switcher\n' +
       '• <b>/brands</b> — Interactive brands catalog, prices & stock\n' +
       '• <b>/reports</b> — Financial statistics & sales analytics\n' +
+      '• <b>/discounts</b> — Manage brand discounts & promotions\n' +
       '• <b>/language</b> — Change bot language (EN / ES / RU)\n' +
       '• <b>/help</b> — This help message\n\n' +
       '⚡️ <b>Notifications:</b>\n' +
@@ -182,6 +187,7 @@ export const commonTranslations: Record<SupportedLanguage, CommonTranslations> =
     cmdOrders: 'Recent store orders',
     cmdBrands: 'Brand catalog, prices & stock',
     cmdReports: 'Financial reports & sales analytics',
+    cmdDiscounts: 'Brand discounts & promotions',
     cmdHelp: 'Help & instructions',
     cmdLanguage: 'Change language',
 

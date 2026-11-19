@@ -1,21 +1,23 @@
 /**
- * In-memory state for awaiting admin text input during "Current sale" edits
- * (custom percentage for a brand, or start/end dates).
- * Note: "New sale" wizard state in Step 3 will be persisted in Prisma `SaleDraft`.
+ * In-memory state for awaiting text input during "Current sale" edits
+ * (custom percentage for a brand, or start/end dates), scoped per store.
  */
 
 export type SalePendingAction =
   | {
       kind: 'edit_brand_pct';
+      storeSlug: string;
       brandId: string;
       messageId?: number;
     }
   | {
       kind: 'edit_dates_start';
+      storeSlug: string;
       messageId?: number;
     }
   | {
       kind: 'edit_dates_end';
+      storeSlug: string;
       startUnix: number;
       messageId?: number;
     };

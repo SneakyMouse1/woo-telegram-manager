@@ -212,6 +212,7 @@ async function main() {
   await provisionWebhooks(store);
 
   console.log(`\n🎉 Store "${store.name}" (ID: ${store.id}) added successfully and ready to use!`);
+  console.log(`💡 To enable /discounts for this store, run: npm run store:discounts -- --store ${store.name}`);
 }
 
 main()

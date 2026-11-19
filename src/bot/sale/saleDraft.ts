@@ -322,54 +322,112 @@ export function buildDiscountsFromGroups(groups: DraftGroup[]): BrandDiscounts {
 // PERSISTENCE (PRISMA + IN-MEMORY FOR TESTS)
 // ==========================================
 
+export interface ActiveSaleDraftEntry {
+  storeKey: string;
+  draft: SaleDraftData;
+}
+
 export interface SaleDraftStore {
-  get(telegramId: bigint | number | string, nowMs?: number): Promise<SaleDraftData | null>;
-  save(telegramId: bigint | number | string, data: SaleDraftData): Promise<SaleDraftData>;
-  clear(telegramId: bigint | number | string): Promise<void>;
+  get(telegramId: bigint | number | string, storeKey: string, nowMs?: number): Promise<SaleDraftData | null>;
+  getActiveAwaitingText(
+    telegramId: bigint | number | string,
+    nowMs?: number
+  ): Promise<ActiveSaleDraftEntry | null>;
+  pauseAllAwaitingText(telegramId: bigint | number | string): Promise<void>;
+  save(telegramId: bigint | number | string, storeKey: string, data: SaleDraftData): Promise<SaleDraftData>;
+  clear(telegramId: bigint | number | string, storeKey: string): Promise<void>;
 }
 
 export const prismaSaleDraftStore: SaleDraftStore = {
-  async get(telegramId, nowMs = Date.now()) {
+  async get(telegramId, storeKey, nowMs = Date.now()) {
     const id = BigInt(telegramId);
-    const row = await prisma.saleDraft.findUnique({ where: { telegramId: id } });
+    const key = storeKey.toLowerCase();
+    const row = await prisma.saleDraft.findUnique({
+      where: { telegramId_storeKey: { telegramId: id, storeKey: key } },
+    });
     if (!row) return null;
     if (isDraftExpired(row.updatedAt, nowMs)) {
-      await prisma.saleDraft.deleteMany({ where: { telegramId: id } });
+      await prisma.saleDraft.deleteMany({ where: { telegramId: id, storeKey: key } });
       return null;
     }
     const parsed = saleDraftDataSchema.safeParse(row.data);
     if (!parsed.success) {
-      await prisma.saleDraft.deleteMany({ where: { telegramId: id } });
+      await prisma.saleDraft.deleteMany({ where: { telegramId: id, storeKey: key } });
       return null;
     }
     return parsed.data;
   },
 
-  async save(telegramId, data) {
+  async getActiveAwaitingText(telegramId, nowMs = Date.now()) {
     const id = BigInt(telegramId);
+    const rows = await prisma.saleDraft.findMany({
+      where: { telegramId: id },
+      orderBy: { updatedAt: 'desc' },
+    });
+    for (const row of rows) {
+      if (isDraftExpired(row.updatedAt, nowMs)) {
+        await prisma.saleDraft.deleteMany({ where: { telegramId: id, storeKey: row.storeKey } });
+        continue;
+      }
+      const parsed = saleDraftDataSchema.safeParse(row.data);
+      if (!parsed.success) {
+        await prisma.saleDraft.deleteMany({ where: { telegramId: id, storeKey: row.storeKey } });
+        continue;
+      }
+      if (parsed.data.awaitingText) {
+        return { storeKey: row.storeKey, draft: parsed.data };
+      }
+    }
+    return null;
+  },
+
+  async pauseAllAwaitingText(telegramId) {
+    const id = BigInt(telegramId);
+    const rows = await prisma.saleDraft.findMany({
+      where: { telegramId: id },
+    });
+    for (const row of rows) {
+      const parsed = saleDraftDataSchema.safeParse(row.data);
+      if (!parsed.success) continue;
+      if (parsed.data.awaitingText) {
+        await prisma.saleDraft.update({
+          where: { telegramId_storeKey: { telegramId: id, storeKey: row.storeKey } },
+          data: { data: { ...parsed.data, awaitingText: false } },
+        });
+      }
+    }
+  },
+
+  async save(telegramId, storeKey, data) {
+    const id = BigInt(telegramId);
+    const key = storeKey.toLowerCase();
     const validated = saleDraftDataSchema.parse(data);
     await prisma.saleDraft.upsert({
-      where: { telegramId: id },
+      where: { telegramId_storeKey: { telegramId: id, storeKey: key } },
       update: { data: validated },
-      create: { telegramId: id, data: validated },
+      create: { telegramId: id, storeKey: key, data: validated },
     });
     return validated;
   },
 
-  async clear(telegramId) {
+  async clear(telegramId, storeKey) {
     const id = BigInt(telegramId);
-    await prisma.saleDraft.deleteMany({ where: { telegramId: id } });
+    const key = storeKey.toLowerCase();
+    await prisma.saleDraft.deleteMany({ where: { telegramId: id, storeKey: key } });
   },
 };
 
-/** In-memory store with the exact same semantics (including 24h TTL) for unit tests. */
+/** In-memory store with the exact same semantics (including 24h TTL & per-store scoping) for unit tests. */
 export function createMemorySaleDraftStore(): SaleDraftStore & {
-  setUpdatedAt(telegramId: bigint | number | string, updatedAtMs: number): void;
+  setUpdatedAt(telegramId: bigint | number | string, storeKey: string, updatedAtMs: number): void;
 } {
-  const map = new Map<string, { data: SaleDraftData; updatedAt: number }>();
+  const map = new Map<string, { telegramId: string; storeKey: string; data: SaleDraftData; updatedAt: number }>();
+  const compositeKey = (telegramId: bigint | number | string, storeKey: string) =>
+    `${String(telegramId)}:${storeKey.toLowerCase()}`;
+
   return {
-    async get(telegramId, nowMs = Date.now()) {
-      const key = String(telegramId);
+    async get(telegramId, storeKey, nowMs = Date.now()) {
+      const key = compositeKey(telegramId, storeKey);
       const entry = map.get(key);
       if (!entry) return null;
       if (isDraftExpired(entry.updatedAt, nowMs)) {
@@ -378,17 +436,47 @@ export function createMemorySaleDraftStore(): SaleDraftStore & {
       }
       return structuredClone(entry.data);
     },
-    async save(telegramId, data) {
+    async getActiveAwaitingText(telegramId, nowMs = Date.now()) {
+      const tid = String(telegramId);
+      const entries = [...map.entries()]
+        .filter(([, v]) => v.telegramId === tid)
+        .sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+
+      for (const [k, entry] of entries) {
+        if (isDraftExpired(entry.updatedAt, nowMs)) {
+          map.delete(k);
+          continue;
+        }
+        if (entry.data.awaitingText) {
+          return { storeKey: entry.storeKey, draft: structuredClone(entry.data) };
+        }
+      }
+      return null;
+    },
+    async pauseAllAwaitingText(telegramId) {
+      const tid = String(telegramId);
+      for (const entry of map.values()) {
+        if (entry.telegramId === tid && entry.data.awaitingText) {
+          entry.data = { ...entry.data, awaitingText: false };
+        }
+      }
+    },
+    async save(telegramId, storeKey, data) {
       const validated = saleDraftDataSchema.parse(data);
-      map.set(String(telegramId), { data: structuredClone(validated), updatedAt: Date.now() });
+      const normalizedStoreKey = storeKey.toLowerCase();
+      map.set(compositeKey(telegramId, normalizedStoreKey), {
+        telegramId: String(telegramId),
+        storeKey: normalizedStoreKey,
+        data: structuredClone(validated),
+        updatedAt: Date.now(),
+      });
       return validated;
     },
-    async clear(telegramId) {
-      map.delete(String(telegramId));
+    async clear(telegramId, storeKey) {
+      map.delete(compositeKey(telegramId, storeKey));
     },
-    setUpdatedAt(telegramId, updatedAtMs) {
-      const key = String(telegramId);
-      const entry = map.get(key);
+    setUpdatedAt(telegramId, storeKey, updatedAtMs) {
+      const entry = map.get(compositeKey(telegramId, storeKey));
       if (entry) entry.updatedAt = updatedAtMs;
     },
   };

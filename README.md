@@ -28,7 +28,7 @@ Production-grade backend service and Telegram bot for managing **multiple WooCom
 - **Multi-Store Management (N-Stores)** — Single backend and bot instance managing multiple isolated WooCommerce stores (e.g. `shop-a`, `shop-b`).
 - **Strict Store Isolation** — Managers only see and interact with stores they are explicitly assigned to. All bot callbacks enforce store-level permission checks.
 - **Product Stock Management** — Manage product and variation stock directly in Telegram with ±1 adjustments, exact number input mode (2-min TTL), and variable product support.
-- **Brand Discounts Management (`/discounts`)** — Admin-only control over store-wide brand sales via the WordPress `wc-brand-sale/v1` REST API, featuring a multi-group creation wizard, persistent Prisma drafts (`SaleDraft`, 24h TTL), `Europe/Madrid` timezone scheduling (date or exact date-time), and live editing of running sales. Companion WordPress plugin included in `wordpress/wc-brand-sale.php`.
+- **Brand Discounts Management (`/discounts`)** — Multi-store control over brand sales via the WordPress `wc-brand-sale/v1` REST API for both the master administrator and assigned store managers (strictly isolated per store), featuring per-store encrypted WP credentials (with `.env` fallback), a multi-group creation wizard, persistent Prisma drafts (`SaleDraft`, 24h TTL per store), `Europe/Madrid` timezone scheduling, and live editing of running sales. Companion WordPress plugin included in `wordpress/wc-brand-sale.php`.
 - **Real-Time Order Notifications** — Instant Telegram alerts for incoming orders (`order.created`, `order.updated`) delivered via store-scoped webhooks (`/api/webhooks/woocommerce/:storeId`).
 - **One-Tap Status Updates** — Inline keyboards to change order statuses (`Processing`, `Completed`, `On-Hold`) directly from Telegram with instant order card refresh.
 - **WhatsApp Integration** — Instant direct chat links (`https://wa.me/<phone>`) with automatic international E.164 phone formatting.
@@ -144,7 +144,8 @@ Managed via Prisma (`prisma/schema.prisma`):
   - `id` (UUID, primary key)
   - `name` (String, unique, slug <= 16 chars, e.g. `shop-a`)
   - `url` (String, unique, e.g. `https://shop-a.example.com`)
-  - `apiKeyEncrypted`, `apiSecretEncrypted`, `webhookSecretEncrypted` (AES-256-GCM encrypted credentials)
+  - `apiKeyEncrypted`, `apiSecretEncrypted`, `webhookSecretEncrypted` (AES-256-GCM encrypted WooCommerce & webhook credentials)
+  - `wpUserEncrypted`, `wpAppPasswordEncrypted` (Optional AES-256-GCM encrypted WordPress Application Password credentials for `/discounts`)
   - `isActive` (Boolean, default `true`)
   - `createdAt` (DateTime)
 - **`ChatUser`**
@@ -160,9 +161,11 @@ Managed via Prisma (`prisma/schema.prisma`):
   - `createdAt` (DateTime)
   - Primary key: `@@id([chatId, storeId])`
 - **`SaleDraft`** (`sale_drafts`)
-  - `telegramId` (BigInt, primary key, admin Telegram ID)
-  - `data` (Json, serialized wizard state: `groups`, `currentGroupBrands`, `start`, `startNow`, `end`, `step`)
+  - `telegramId` (BigInt, Telegram user ID)
+  - `storeKey` (String, store slug or `__env__` fallback)
+  - `data` (Json, serialized wizard state: `groups`, `currentBrandIds`, `startUnix`, `startNow`, `endUnix`, `step`)
   - `updatedAt` (DateTime, `@updatedAt` — drafts automatically expire after 24 hours)
+  - Primary key: `@@id([telegramId, storeKey])`
 
 ---
 
@@ -257,6 +260,27 @@ The provisioner uses a zero-downtime dual-secret migration:
 4. Deletes outdated bot webhooks.
 5. Finalizes single new secret in the database.
 
+### 3. Configuring Per-Store Brand Discounts (`/discounts`)
+
+To enable `/discounts` for a specific store with encrypted WordPress Application Password credentials stored in PostgreSQL:
+
+```bash
+# Interactive setup (verifies wc-brand-sale/v1 API live before saving)
+npm run store:discounts -- --store shop-a
+
+# Preview verification without writing to DB
+npm run store:discounts -- --store shop-a --dry-run
+
+# Non-interactive mode
+STORE_WP_USER=admin_bot STORE_WP_APP_PASSWORD="xxxx xxxx ..." npm run store:discounts -- --store shop-a
+
+# Clear per-store credentials
+npm run store:discounts -- --store shop-a --clear
+```
+
+> [!NOTE]
+> **`.env` Fallback**: If a store does not have per-store WordPress credentials saved in the database, the bot automatically falls back to `WP_URL`, `WP_USER`, and `WP_APP_PASSWORD` from `.env` whenever `Store.url` matches `WP_URL` (normalized host/path).
+
 ---
 
 ## Telegram Bot Commands & Roles
@@ -274,7 +298,7 @@ The administrator has unrestricted access to all active stores and user manageme
 | `/orders [store]` | Lists recent orders across all stores with status badges and page navigation. |
 | `/brands [store]` | Browses catalog brands and products with stock and pricing. |
 | `/reports [store]` | Displays sales analytics (7 Days, Month, 3M, 6M, YTD, Last Year, Custom Year, Top Customers). |
-| `/discounts` | *(Admin-only, hidden from public menu)* Opens the Brand Discounts menu to view/edit the active sale, launch the multi-group sale creation wizard, or end a sale immediately. |
+| `/discounts [store]` | Opens the Brand Discounts menu (or store selector) to view/edit active sales, launch the multi-group sale creation wizard, or end a sale immediately. |
 | `/language` | Switches preferred interface language (`ru`, `en`, `es`). |
 | `/help` | Displays usage guide. |
 
@@ -284,11 +308,12 @@ Managers only receive access via invite deep-links:
 
 | Command | Description |
 | :--- | :--- |
-| `/start` | Displays main menu or store selector for assigned stores. |
+| `/start` | Displays main menu (including 🔥 Discounts if enabled for the store) or store selector for assigned stores. |
 | `/start <CODE>` | Activates an invitation link and grants access to the specified store. |
 | `/orders [store]` | Lists recent orders with status badges and page navigation. |
 | `/brands [store]` | Browses catalog brands and products with stock and pricing. |
 | `/reports [store]` | Displays sales analytics (7 Days, Month, 3M, 6M, YTD, Last Year, Custom Year, Top Customers). |
+| `/discounts [store]` | Manages brand discounts and promotions for assigned stores that have Brand Discounts configured. |
 | `/language` | Switches preferred interface language (`ru`, `en`, `es`). |
 | `/help` | Displays usage guide. |
 | Text Search | Send any text (product title, SKU, brand) for instant catalog lookup. |
@@ -330,11 +355,12 @@ Managers can inspect and adjust inventory levels directly in Telegram without lo
 
 ## Brand Discounts Management (`/discounts`)
 
-The master administrator (`ADMIN_CHAT_ID`) can manage store-wide brand sales via the WordPress `wc-brand-sale/v1` REST API (`GET/PUT/DELETE /wp-json/wc-brand-sale/v1/brand-sale` and `GET /wp-json/wc-brand-sale/v1/brands`). Product prices are calculated dynamically on the WordPress side by the companion PHP snippet ([`wordpress/wc-brand-sale.php`](file:///Users/simonsmyslov/Desktop/WorkProjects/woo-telegram-manager/wordpress/wc-brand-sale.php)); the bot reads and writes the single sale configuration object (`{ start, end, discounts }`).
+The master administrator (`ADMIN_CHAT_ID`) and active store managers (`StoreMember`) can manage brand sales for their assigned stores via the WordPress `wc-brand-sale/v1` REST API (`GET/PUT/DELETE /wp-json/wc-brand-sale/v1/brand-sale` and `GET /wp-json/wc-brand-sale/v1/brands`). Product prices are calculated dynamically on the WordPress side by the companion PHP snippet (`wordpress/wc-brand-sale.php`); the bot reads and writes the single sale configuration object (`{ start, end, discounts }`).
 
-### 1. Access Control & WordPress Client (`wpBrandSale`)
-- **Strict Admin Isolation**: Every `/discounts` command, `sd:*` inline callback, and sale text input is guarded by `ADMIN_CHAT_ID`. Store managers never see the "🏷 Discounts" button and receive an access denied response if they invoke `/discounts`.
-- **Resilient REST Client**: Uses Basic Auth (`WP_USER` + `WP_APP_PASSWORD`) over HTTPS with a 15-second `AbortSignal.timeout`, structured error mapping (`400`, `401/403`, `404`, `5xx`, timeout), and a 5-minute in-memory brand list cache (`getBrands()`, `invalidateBrandsCache()`).
+### 1. Multi-Store Access Control & WordPress Client (`wpBrandSale`)
+- **Strict Store Isolation**: Every `/discounts [store]` command, store-scoped `s:*:<slug>` inline callback, and sale text input resolves through `resolveSaleStore()` using `canAccessStore()`. Store managers can only manage discounts for stores they are assigned to (`StoreMember` + active `ChatUser`), and the `🔥 Discounts` button appears in `/start` only when discounts are configured for that store.
+- **Per-Store Encrypted Credentials + `.env` Fallback**: WordPress credentials (`wpUserEncrypted`, `wpAppPasswordEncrypted`) are stored encrypted per store via `npm run store:discounts -- --store <slug>`. If unset on a store, the bot falls back to `.env` (`WP_URL`, `WP_USER`, `WP_APP_PASSWORD`) when `Store.url` matches `WP_URL`.
+- **Resilient REST Client**: Uses Basic Auth over HTTPS with a 15-second `AbortSignal.timeout`, structured error mapping (`400`, `401/403`, `404`, `5xx`, timeout), and a per-store 5-minute in-memory brand list cache.
 
 ### 2. Current Sale View & Live Editing
 - **Status & Grouping**: Displays status (`🟢 Active` or `🕒 Scheduled`), `Europe/Madrid` start/end dates formatted via `Intl.DateTimeFormat`, configuration `version`, and brands grouped by discount percentage in descending order.

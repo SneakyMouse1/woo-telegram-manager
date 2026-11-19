@@ -16,6 +16,19 @@ export const PRESET_PERCENTS = [25, 30, 35, 40, 45, 50] as const;
 const BRANDS_PER_EDIT_PAGE = 20;
 const MAX_LINES_SHOWN = 60;
 
+export interface SaleStoreViewCtx {
+  slug: string;
+  name: string;
+}
+
+function encSlug(store: SaleStoreViewCtx): string {
+  return encodeURIComponent(store.slug);
+}
+
+function storeHeaderLine(store: SaleStoreViewCtx): string {
+  return `🏪 <b>${escapeHtml(store.name)}</b>\n`;
+}
+
 export function formatWpError(err: unknown, lang: SupportedLanguage): string {
   const dict = t(lang);
   if (err instanceof SaleEditError) {
@@ -59,28 +72,52 @@ export function formatWpError(err: unknown, lang: SupportedLanguage): string {
   return dict.saleErrUnknown;
 }
 
-export function renderSaleMainMenu(
-  lang: SupportedLanguage,
-  hasActiveDraft = false
+export function renderSaleStorePicker(
+  stores: SaleStoreViewCtx[],
+  lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const kb = new InlineKeyboard();
+  stores.forEach((st, idx) => {
+    kb.text(`🏪 ${st.name}`, `s:m:${encSlug(st)}`);
+    if (idx < stores.length - 1) kb.row();
+  });
+  return {
+    text: `🏷 <b>${dict.salePickerTitle}</b>\n\n${dict.selectStore}`,
+    reply_markup: kb,
+  };
+}
+
+export function renderSaleMainMenu(
+  store: SaleStoreViewCtx,
+  lang: SupportedLanguage,
+  hasActiveDraft = false,
+  canSwitchStore = false
+): { text: string; reply_markup: InlineKeyboard } {
+  const dict = t(lang);
+  const s = encSlug(store);
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleCurrent, 's:cur')
+    .text(dict.btnSaleCurrent, `s:cur:${s}`)
     .row()
-    .text(dict.btnSaleNew, 's:new');
+    .text(dict.btnSaleNew, `s:new:${s}`);
   if (hasActiveDraft) {
-    kb.row().text(dict.btnSaleResumeDraft, 's:nrs');
+    kb.row().text(dict.btnSaleResumeDraft, `s:nrs:${s}`);
   }
-  kb.row().text(dict.btnSaleEndNow, 's:end:ask');
-  return { text: dict.saleMenuTitle, reply_markup: kb };
+  kb.row().text(dict.btnSaleEndNow, `s:end:ask:${s}`);
+  if (canSwitchStore) {
+    kb.row().text(dict.btnSwitchStore, 's:stores');
+  }
+  return { text: `${storeHeaderLine(store)}${dict.saleMenuTitle}`, reply_markup: kb };
 }
 
 export function renderCurrentSale(
   sale: BrandSale,
   extraNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const status = getSaleStatus(sale);
   const statusBadge =
     status === 'running'
@@ -96,6 +133,7 @@ export function renderCurrentSale(
   const totalBrands = Object.keys(sale.discounts).length;
 
   let text = `${dict.saleCurrentTitle}\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `${storeHeaderLine(store)}`;
   text += `${statusBadge}\n`;
 
   if (sale.start && sale.end) {
@@ -126,12 +164,12 @@ export function renderCurrentSale(
 
   const kb = new InlineKeyboard();
   if (totalBrands > 0 && sale.start && sale.end && status !== 'ended') {
-    kb.text(dict.btnSaleEditBrand, 's:eb:1').text(dict.btnSaleEditDates, 's:ed').row();
-    kb.text(dict.btnSaleEndNow, 's:end:ask').row();
+    kb.text(dict.btnSaleEditBrand, `s:eb:${s}:1`).text(dict.btnSaleEditDates, `s:ed:${s}`).row();
+    kb.text(dict.btnSaleEndNow, `s:end:ask:${s}`).row();
   } else {
-    kb.text(dict.btnSaleNew, 's:new').row();
+    kb.text(dict.btnSaleNew, `s:new:${s}`).row();
   }
-  kb.text(dict.btnSaleRefresh, 's:cur').text(dict.btnSaleMenu, 's:m');
+  kb.text(dict.btnSaleRefresh, `s:cur:${s}`).text(dict.btnSaleMenu, `s:m:${s}`);
 
   return { text, reply_markup: kb };
 }
@@ -140,9 +178,11 @@ export function renderEditBrandList(
   sale: BrandSale,
   extraNames: Record<string, string>,
   page: number,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const names = { ...extraNames, ...saleBrandNames(sale) };
   const items = Object.entries(sale.discounts)
     .map(([id, pct]) => ({ id, name: names[id] ?? `#${id}`, pct }))
@@ -152,27 +192,27 @@ export function renderEditBrandList(
   const safePage = Math.max(1, Math.min(page, totalPages));
   const slice = items.slice((safePage - 1) * BRANDS_PER_EDIT_PAGE, safePage * BRANDS_PER_EDIT_PAGE);
 
-  const text = `${dict.saleEditBrandTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${dict.saleEditBrandPick}`;
+  const text = `${dict.saleEditBrandTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${storeHeaderLine(store)}${dict.saleEditBrandPick}`;
   const kb = new InlineKeyboard();
 
   for (let i = 0; i < slice.length; i += 2) {
     const a = slice[i];
     const b = slice[i + 1];
-    kb.text(`${truncate(a.name, 18)} (−${a.pct}%)`, `s:ebs:${a.id}`);
+    kb.text(`${truncate(a.name, 18)} (−${a.pct}%)`, `s:ebs:${s}:${a.id}`);
     if (b) {
-      kb.text(`${truncate(b.name, 18)} (−${b.pct}%)`, `s:ebs:${b.id}`);
+      kb.text(`${truncate(b.name, 18)} (−${b.pct}%)`, `s:ebs:${s}:${b.id}`);
     }
     kb.row();
   }
 
   if (totalPages > 1) {
-    if (safePage > 1) kb.text('‹', `s:eb:${safePage - 1}`);
+    if (safePage > 1) kb.text('‹', `s:eb:${s}:${safePage - 1}`);
     kb.text(`${safePage}/${totalPages}`, 'noop');
-    if (safePage < totalPages) kb.text('›', `s:eb:${safePage + 1}`);
+    if (safePage < totalPages) kb.text('›', `s:eb:${s}:${safePage + 1}`);
     kb.row();
   }
 
-  kb.text(dict.btnBack, 's:cur');
+  kb.text(dict.btnBack, `s:cur:${s}`);
   return { text, reply_markup: kb };
 }
 
@@ -181,38 +221,45 @@ export function renderEditBrandCard(
   brandName: string,
   currentPct: number,
   totalBrandsInSale: number,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const text =
     `${dict.saleEditBrandTitle}\n━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${storeHeaderLine(store)}` +
     dict.saleBrandCurrentPct(escapeHtml(brandName), currentPct);
 
   const kb = new InlineKeyboard();
   for (let i = 0; i < PRESET_PERCENTS.length; i += 3) {
     for (const p of PRESET_PERCENTS.slice(i, i + 3)) {
       const label = p === currentPct ? `• −${p}% •` : `−${p}%`;
-      kb.text(label, `s:ebp:${brandId}:${p}`);
+      kb.text(label, `s:ebp:${s}:${brandId}:${p}`);
     }
     kb.row();
   }
-  kb.text(dict.btnSaleCustomPct, `s:ebc:${brandId}`).row();
+  kb.text(dict.btnSaleCustomPct, `s:ebc:${s}:${brandId}`).row();
   if (totalBrandsInSale > 1) {
-    kb.text(dict.btnSaleRemoveBrand, `s:ebr:${brandId}`).row();
+    kb.text(dict.btnSaleRemoveBrand, `s:ebr:${s}:${brandId}`).row();
   } else {
-    kb.text(dict.btnSaleEndNow, 's:end:ask').row();
+    kb.text(dict.btnSaleEndNow, `s:end:ask:${s}`).row();
   }
-  kb.text(dict.btnBack, 's:eb:1');
+  kb.text(dict.btnBack, `s:eb:${s}:1`);
 
   return { text, reply_markup: kb };
 }
 
-export function renderEndSaleConfirm(lang: SupportedLanguage): { text: string; reply_markup: InlineKeyboard } {
+export function renderEndSaleConfirm(
+  store: SaleStoreViewCtx,
+  lang: SupportedLanguage
+): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleConfirm, 's:end:do')
-    .text(dict.btnSaleCancel, 's:cur');
-  return { text: dict.saleEndConfirm, reply_markup: kb };
+    .text(dict.btnSaleConfirm, `s:end:do:${s}`)
+    .text(dict.btnSaleCancel, `s:cur:${s}`);
+  return { text: `${storeHeaderLine(store)}${dict.saleEndConfirm}`, reply_markup: kb };
 }
 
 // ==========================================
@@ -244,44 +291,50 @@ function renderGroupsBlock(
 export function renderWizardPickPercent(
   draft: SaleDraftData,
   brandNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
-  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${dict.saleNewPickPct}\n`;
+  const s = encSlug(store);
+  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${storeHeaderLine(store)}${dict.saleNewPickPct}\n`;
   text += renderGroupsBlock(draft, brandNames, lang);
 
   const kb = new InlineKeyboard();
   for (let i = 0; i < PRESET_PERCENTS.length; i += 3) {
     for (const p of PRESET_PERCENTS.slice(i, i + 3)) {
-      kb.text(`${p}%`, `s:npct:${p}`);
+      kb.text(`${p}%`, `s:npct:${s}:${p}`);
     }
     kb.row();
   }
-  kb.text(dict.btnSaleCustomPct, 's:npc').row();
+  kb.text(dict.btnSaleCustomPct, `s:npc:${s}`).row();
   if (draft.groups.length > 0) {
-    kb.text(dict.btnSaleAddGroupNo, 's:na:n').row();
+    kb.text(dict.btnSaleAddGroupNo, `s:na:${s}:n`).row();
   }
-  kb.text(dict.btnSaleCancel, 's:nx');
+  kb.text(dict.btnSaleCancel, `s:nx:${s}`);
   return { text, reply_markup: kb };
 }
 
 export function renderWizardCustomPercentPrompt(
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
-  const text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${dict.saleEnterPercent}`;
+  const s = encSlug(store);
+  const text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${storeHeaderLine(store)}${dict.saleEnterPercent}`;
   const kb = new InlineKeyboard()
-    .text(dict.btnBack, 's:npk')
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnBack, `s:npk:${s}`)
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
   return { text, reply_markup: kb };
 }
 
 export function renderWizardPickBrands(
   draft: SaleDraftData,
   brands: WpBrand[],
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const pct = draft.currentPct ?? 25;
   const selectedSet = new Set(draft.currentBrandIds.map(String));
   const locked = getLockedBrandsMap(draft.groups, pct);
@@ -295,29 +348,30 @@ export function renderWizardPickBrands(
 
   const text =
     `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${storeHeaderLine(store)}` +
     dict.saleNewPickBrands(pct, selectedSet.size);
 
   const kb = new InlineKeyboard();
   for (let i = 0; i < slice.length; i += 2) {
     const a = slice[i];
     const b = slice[i + 1];
-    kb.text(formatBrandBtnLabel(a, selectedSet, locked), `s:t:${a.id}`);
+    kb.text(formatBrandBtnLabel(a, selectedSet, locked), `s:t:${s}:${a.id}`);
     if (b) {
-      kb.text(formatBrandBtnLabel(b, selectedSet, locked), `s:t:${b.id}`);
+      kb.text(formatBrandBtnLabel(b, selectedSet, locked), `s:t:${s}:${b.id}`);
     }
     kb.row();
   }
 
   // Pagination row: ‹  page/total  ›
   if (totalPages > 1) {
-    if (safePage > 1) kb.text('‹', `s:np:${safePage - 1}`);
+    if (safePage > 1) kb.text('‹', `s:np:${s}:${safePage - 1}`);
     kb.text(`${safePage}/${totalPages}`, 'noop');
-    if (safePage < totalPages) kb.text('›', `s:np:${safePage + 1}`);
+    if (safePage < totalPages) kb.text('›', `s:np:${s}:${safePage + 1}`);
     kb.row();
   }
 
-  kb.text(dict.btnSaleDone, 's:nd').row();
-  kb.text(dict.btnBack, 's:npk').text(dict.btnSaleCancel, 's:nx');
+  kb.text(dict.btnSaleDone, `s:nd:${s}`).row();
+  kb.text(dict.btnBack, `s:npk:${s}`).text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }
@@ -340,19 +394,21 @@ function formatBrandBtnLabel(
 export function renderWizardAskMoreGroups(
   draft: SaleDraftData,
   brandNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
-  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  const s = encSlug(store);
+  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${storeHeaderLine(store)}`;
   text += renderGroupsBlock(draft, brandNames, lang);
   text += `\n${dict.saleNewAskMoreGroups}`;
 
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleAddGroupYes, 's:na:y')
+    .text(dict.btnSaleAddGroupYes, `s:na:${s}:y`)
     .row()
-    .text(dict.btnSaleAddGroupNo, 's:na:n')
+    .text(dict.btnSaleAddGroupNo, `s:na:${s}:n`)
     .row()
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }
@@ -360,27 +416,31 @@ export function renderWizardAskMoreGroups(
 export function renderWizardStartPrompt(
   draft: SaleDraftData,
   brandNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
-  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  const s = encSlug(store);
+  let text = `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n${storeHeaderLine(store)}`;
   text += renderGroupsBlock(draft, brandNames, lang);
   text += `\n${dict.saleNewStartPrompt}`;
 
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleNow, 's:ns:now')
+    .text(dict.btnSaleNow, `s:ns:now:${s}`)
     .row()
-    .text(dict.btnBack, 's:nb:grp')
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnBack, `s:nb:grp:${s}`)
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }
 
 export function renderWizardEndPrompt(
   draft: SaleDraftData,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const startLabel = draft.startNow
     ? dict.btnSaleNow
     : draft.startUnix
@@ -389,12 +449,13 @@ export function renderWizardEndPrompt(
 
   const text =
     `${dict.saleNewTitle}\n━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${storeHeaderLine(store)}` +
     `📅 ${dict.saleStart}: <b>${escapeHtml(startLabel)}</b>\n\n` +
     dict.saleNewEndPrompt;
 
   const kb = new InlineKeyboard()
-    .text(dict.btnBack, 's:na:n')
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnBack, `s:na:${s}:n`)
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }
@@ -402,9 +463,11 @@ export function renderWizardEndPrompt(
 export function renderWizardConfirm(
   draft: SaleDraftData,
   brandNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const discounts = buildDiscountsFromGroups(draft.groups);
   const grouped = groupByPercent(discounts, brandNames);
   const totalBrands = Object.keys(discounts).length;
@@ -417,6 +480,7 @@ export function renderWizardConfirm(
   const endStr = draft.endUnix ? formatMadrid(draft.endUnix) : '—';
 
   let text = `${dict.saleNewConfirmTitle}\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `${storeHeaderLine(store)}`;
   text += `📅 ${dict.saleStart}: <b>${escapeHtml(startStr)}</b>\n`;
   text += `📅 ${dict.saleEnd}: <b>${escapeHtml(endStr)}</b>\n`;
   text += `${dict.saleTimezoneNote}\n\n`;
@@ -437,8 +501,8 @@ export function renderWizardConfirm(
   }
 
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleConfirm, 's:ncf')
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnSaleConfirm, `s:ncf:${s}`)
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }
@@ -446,9 +510,11 @@ export function renderWizardConfirm(
 export function renderWizardReplaceWarning(
   draft: SaleDraftData,
   brandNames: Record<string, string>,
+  store: SaleStoreViewCtx,
   lang: SupportedLanguage
 ): { text: string; reply_markup: InlineKeyboard } {
   const dict = t(lang);
+  const s = encSlug(store);
   const discounts = buildDiscountsFromGroups(draft.groups);
   const totalBrands = Object.keys(discounts).length;
   const startStr = draft.startNow
@@ -459,6 +525,7 @@ export function renderWizardReplaceWarning(
   const endStr = draft.endUnix ? formatMadrid(draft.endUnix) : '—';
 
   let text = `${dict.saleNewReplaceWarningTitle}\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `${storeHeaderLine(store)}`;
   text += `${dict.saleNewReplaceWarningBody}\n\n`;
   text += `📅 ${dict.saleStart}: <b>${escapeHtml(startStr)}</b>\n`;
   text += `📅 ${dict.saleEnd}: <b>${escapeHtml(endStr)}</b>\n`;
@@ -466,9 +533,9 @@ export function renderWizardReplaceWarning(
   text += renderGroupsBlock(draft, brandNames, lang);
 
   const kb = new InlineKeyboard()
-    .text(dict.btnSaleConfirmReplace, 's:nrp')
+    .text(dict.btnSaleConfirmReplace, `s:nrp:${s}`)
     .row()
-    .text(dict.btnSaleCancel, 's:nx');
+    .text(dict.btnSaleCancel, `s:nx:${s}`);
 
   return { text, reply_markup: kb };
 }

@@ -19,7 +19,14 @@ import {
   setPendingSaleInput,
 } from '../src/bot/sale/saleInputStore.js';
 import { handleSaleTextInput, isSaleAdmin } from '../src/bot/sale/saleHandlers.js';
-import type { BrandSale } from '../src/services/wpBrandSaleClient.js';
+import {
+  hasStoreWpBrandSaleConfig,
+  normalizeSiteUrl,
+  resolveStoreWpCredentials,
+  SaleAccessError,
+  type BrandSale,
+  type SaleStoreResolver,
+} from '../src/services/wpBrandSale.js';
 
 // ==========================================
 // Europe/Madrid time & DST tests
@@ -185,16 +192,21 @@ test('withDates validates end > start and end > now', () => {
 // saleInputStore: exit via "Back" or command
 // ==========================================
 
-test('saleInputStore: exiting "custom %" via Back (s:ebs:<id>) clears state so plain text and commands are not intercepted', () => {
+test('saleInputStore: exiting "custom %" via Back (s:ebs:<slug>:<id>) clears state so plain text and commands are not intercepted', () => {
   const chatId = 123456;
   clearPendingSaleInput(chatId);
 
-  // 1. User opens "custom %" for brand 665
-  setPendingSaleInput(chatId, { kind: 'edit_brand_pct', brandId: '665', messageId: 10 });
-  assert.deepEqual(getPendingSaleInput(chatId), { kind: 'edit_brand_pct', brandId: '665', messageId: 10 });
+  // 1. User opens "custom %" for brand 665 on shop-a
+  setPendingSaleInput(chatId, { kind: 'edit_brand_pct', storeSlug: 'shop-a', brandId: '665', messageId: 10 });
+  assert.deepEqual(getPendingSaleInput(chatId), {
+    kind: 'edit_brand_pct',
+    storeSlug: 'shop-a',
+    brandId: '665',
+    messageId: 10,
+  });
 
-  // 2. User clicks "Back" button (callback_data: s:ebs:665)
-  resetSaleInputOnUpdate({ chatId, callbackData: 's:ebs:665' });
+  // 2. User clicks "Back" button (callback_data: s:ebs:shop-a:665)
+  resetSaleInputOnUpdate({ chatId, callbackData: 's:ebs:shop-a:665' });
 
   // 3. Subsequent ordinary text message (e.g. product search "shampoo") is NOT intercepted
   resetSaleInputOnUpdate({ chatId, messageText: 'shampoo' });
@@ -205,20 +217,20 @@ test('saleInputStore: exiting "custom %" via Back (s:ebs:<id>) clears state so p
   assert.equal(getPendingSaleInput(chatId), undefined);
 });
 
-test('saleInputStore: exiting date input (start or end) via Back (s:cur) or command clears state', () => {
+test('saleInputStore: exiting date input (start or end) via Back (s:cur:<slug>) or command clears state', () => {
   const chatId = 123456;
   clearPendingSaleInput(chatId);
 
   // 1. User opens "Edit dates" -> start date prompt
-  setPendingSaleInput(chatId, { kind: 'edit_dates_start', messageId: 11 });
+  setPendingSaleInput(chatId, { kind: 'edit_dates_start', storeSlug: 'shop-a', messageId: 11 });
   assert.equal(getPendingSaleInput(chatId)?.kind, 'edit_dates_start');
 
-  // 2. User clicks "Back" (callback_data: s:cur)
-  resetSaleInputOnUpdate({ chatId, callbackData: 's:cur' });
+  // 2. User clicks "Back" (callback_data: s:cur:shop-a)
+  resetSaleInputOnUpdate({ chatId, callbackData: 's:cur:shop-a' });
   assert.equal(getPendingSaleInput(chatId), undefined);
 
   // 3. User opens "Edit dates" -> end date prompt, then sends a slash command (/brands)
-  setPendingSaleInput(chatId, { kind: 'edit_dates_end', startUnix: 1793000000, messageId: 12 });
+  setPendingSaleInput(chatId, { kind: 'edit_dates_end', storeSlug: 'shop-a', startUnix: 1793000000, messageId: 12 });
   assert.equal(getPendingSaleInput(chatId)?.kind, 'edit_dates_end');
 
   resetSaleInputOnUpdate({ chatId, messageText: '/brands' });
@@ -234,11 +246,12 @@ test('saleInputStore: expires after 10 minutes (SALE_INPUT_TTL_MS) of inactivity
   const t0 = 1_700_000_000_000;
   assert.equal(SALE_INPUT_TTL_MS, 10 * 60 * 1000);
 
-  setPendingSaleInput(chatId, { kind: 'edit_brand_pct', brandId: '665', messageId: 1 }, t0);
+  setPendingSaleInput(chatId, { kind: 'edit_brand_pct', storeSlug: 'shop-a', brandId: '665', messageId: 1 }, t0);
 
   // Still active 1 ms before 10 minutes
   assert.deepEqual(getPendingSaleInput(chatId, t0 + SALE_INPUT_TTL_MS - 1), {
     kind: 'edit_brand_pct',
+    storeSlug: 'shop-a',
     brandId: '665',
     messageId: 1,
   });
@@ -248,37 +261,87 @@ test('saleInputStore: expires after 10 minutes (SALE_INPUT_TTL_MS) of inactivity
   assert.equal(getPendingSaleInput(chatId, t0 + SALE_INPUT_TTL_MS + 5000), undefined);
 });
 
-test('isSaleAdmin & handleSaleTextInput: non-admin cannot trigger sale text input even if pending state exists', async () => {
+test('normalizeSiteUrl & per-store WP credentials resolution with .env fallback isolation', () => {
+  assert.equal(normalizeSiteUrl('https://Shop-A.Example.com/'), 'https://shop-a.example.com');
+  assert.equal(normalizeSiteUrl('https://www.shop-a.example.com///'), 'https://shop-a.example.com');
+  assert.notEqual(normalizeSiteUrl('https://staging.example.com'), normalizeSiteUrl('https://example.com'));
+
+  const envCfg = {
+    wpUrl: 'https://www.shop-a.example.com/',
+    wpUser: 'env_user',
+    wpAppPassword: 'env_password',
+  };
+
+  // Store A has no DB creds, URL matches WP_URL -> falls back to .env
+  const storeA = { url: 'https://shop-a.example.com', wpUserEncrypted: null, wpAppPasswordEncrypted: null };
+  assert.equal(hasStoreWpBrandSaleConfig(storeA, envCfg), true);
+  const credsA = resolveStoreWpCredentials(storeA, envCfg, (v) => `dec:${v}`);
+  assert.deepEqual(credsA, {
+    baseUrl: 'https://www.shop-a.example.com',
+    user: 'env_user',
+    appPassword: 'env_password',
+    source: 'env',
+  });
+
+  // Store B has no DB creds and different URL -> NOT configured (strict isolation from .env!)
+  const storeB = { url: 'https://shop-b.example.com', wpUserEncrypted: null, wpAppPasswordEncrypted: null };
+  assert.equal(hasStoreWpBrandSaleConfig(storeB, envCfg), false);
+  assert.equal(resolveStoreWpCredentials(storeB, envCfg, (v) => `dec:${v}`), null);
+
+  // Store A with DB creds -> DB creds take precedence over .env
+  const storeAWithDb = {
+    url: 'https://shop-a.example.com/',
+    wpUserEncrypted: 'enc_user',
+    wpAppPasswordEncrypted: 'enc_pass',
+  };
+  assert.equal(hasStoreWpBrandSaleConfig(storeAWithDb, envCfg), true);
+  const credsADb = resolveStoreWpCredentials(storeAWithDb, envCfg, (v) => `dec:${v}`);
+  assert.deepEqual(credsADb, {
+    baseUrl: 'https://shop-a.example.com',
+    user: 'dec:enc_user',
+    appPassword: 'dec:enc_pass',
+    source: 'store',
+  });
+});
+
+test('isSaleAdmin & handleSaleTextInput: unauthorized user cannot trigger sale text input even if pending state exists', async () => {
   const ADMIN_ID = '900001';
-  const NON_ADMIN_ID = 555555;
+  const NON_MEMBER_ID = 555555;
 
   assert.equal(checkSaleAdmin(900001, ADMIN_ID), true);
   assert.equal(checkSaleAdmin(900001n, ADMIN_ID), true);
-  assert.equal(checkSaleAdmin(NON_ADMIN_ID, ADMIN_ID), false);
+  assert.equal(checkSaleAdmin(NON_MEMBER_ID, ADMIN_ID), false);
   assert.equal(checkSaleAdmin(undefined, ADMIN_ID), false);
-  assert.equal(isSaleAdmin(NON_ADMIN_ID, ADMIN_ID), false);
+  assert.equal(isSaleAdmin(NON_MEMBER_ID, ADMIN_ID), false);
   assert.equal(isSaleAdmin(900001, ADMIN_ID), true);
 
-  // Put a pending state under NON_ADMIN_ID and verify handleSaleTextInput refuses to run
-  setPendingSaleInput(NON_ADMIN_ID, { kind: 'edit_brand_pct', brandId: '665', messageId: 42 });
+  // Put a pending state under NON_MEMBER_ID for shop-b and verify handleSaleTextInput denies access without calling WP
+  setPendingSaleInput(NON_MEMBER_ID, { kind: 'edit_brand_pct', storeSlug: 'shop-b', brandId: '665', messageId: 42 });
 
   let apiCalled = false;
-  const fakeClient: any = {
-    getSale: async () => {
-      apiCalled = true;
-      return sampleSale;
+  const replies: string[] = [];
+  const deniedResolver: SaleStoreResolver = {
+    isAdmin: (id) => String(id) === ADMIN_ID,
+    getAccessibleSaleStores: async () => [],
+    hasAnyAccessibleStore: async () => true,
+    resolveSaleStore: async () => {
+      throw new SaleAccessError('ACCESS_DENIED', 'Access denied');
     },
   };
-  const fakeNonAdminCtx: any = {
-    from: { id: NON_ADMIN_ID },
-    chat: { id: NON_ADMIN_ID },
+  const fakeNonMemberCtx: any = {
+    from: { id: NON_MEMBER_ID, language_code: 'ru' },
+    chat: { id: NON_MEMBER_ID },
     message: { text: '45' },
+    reply: async (text: string) => {
+      replies.push(text);
+    },
   };
 
-  const handled = await handleSaleTextInput(fakeNonAdminCtx, fakeClient, ADMIN_ID);
-  assert.equal(handled, false);
+  const handled = await handleSaleTextInput(fakeNonMemberCtx, deniedResolver);
+  assert.equal(handled, true);
   assert.equal(apiCalled, false);
-
-  clearPendingSaleInput(NON_ADMIN_ID);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], 'Access denied');
+  assert.equal(getPendingSaleInput(NON_MEMBER_ID), undefined);
 });
 

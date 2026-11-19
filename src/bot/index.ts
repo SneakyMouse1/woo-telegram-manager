@@ -1,4 +1,5 @@
 import { Bot, InlineKeyboard } from 'grammy';
+import type { Store } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import type { WooOrder, WooProduct, WooBrand, WooProductVariation } from '../services/woocommerceService.js';
@@ -11,6 +12,7 @@ import {
   getAccessibleStoresForChat,
   getRecipientsForStoreNotification,
 } from '../services/storeResolver.js';
+import { hasStoreWpBrandSaleConfig } from '../services/wpBrandSale.js';
 import {
   createInvite,
   consumeInvite,
@@ -46,7 +48,11 @@ import {
   t,
   type SupportedLanguage,
 } from './i18n/index.js';
-import { registerSaleHandlers, handleSaleTextInput } from './sale/saleHandlers.js';
+import {
+  applySaleInputResetMiddleware,
+  registerSaleHandlers,
+  handleSaleTextInput,
+} from './sale/saleHandlers.js';
 
 export const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
@@ -110,8 +116,9 @@ bot.use(async (ctx, next) => {
 });
 
 /**
- * Stock input reset middleware:
- * Clears pending stock number input mode on any command or callback (except si:).
+ * Input reset middleware:
+ * Clears pending stock number input mode on any command or callback (except si:)
+ * and clears pending sale text input / pauses wizard text awaiting on any command or callback.
  */
 bot.use(async (ctx, next) => {
   const chatId = ctx.chat?.id;
@@ -124,6 +131,7 @@ bot.use(async (ctx, next) => {
       clearPendingStockInput(chatId);
     }
   }
+  await applySaleInputResetMiddleware(ctx);
   return await next();
 });
 
@@ -144,6 +152,7 @@ export async function setupBotMetadata() {
         { command: 'orders', description: ruDict.cmdOrders },
         { command: 'brands', description: ruDict.cmdBrands },
         { command: 'reports', description: ruDict.cmdReports },
+        { command: 'discounts', description: ruDict.cmdDiscounts },
         { command: 'language', description: ruDict.cmdLanguage },
         { command: 'help', description: ruDict.cmdHelp },
       ],
@@ -157,6 +166,7 @@ export async function setupBotMetadata() {
         { command: 'orders', description: esDict.cmdOrders },
         { command: 'brands', description: esDict.cmdBrands },
         { command: 'reports', description: esDict.cmdReports },
+        { command: 'discounts', description: esDict.cmdDiscounts },
         { command: 'language', description: esDict.cmdLanguage },
         { command: 'help', description: esDict.cmdHelp },
       ],
@@ -170,6 +180,7 @@ export async function setupBotMetadata() {
         { command: 'orders', description: enDict.cmdOrders },
         { command: 'brands', description: enDict.cmdBrands },
         { command: 'reports', description: enDict.cmdReports },
+        { command: 'discounts', description: enDict.cmdDiscounts },
         { command: 'language', description: enDict.cmdLanguage },
         { command: 'help', description: enDict.cmdHelp },
       ],
@@ -182,6 +193,7 @@ export async function setupBotMetadata() {
       { command: 'orders', description: ruDict.cmdOrders },
       { command: 'brands', description: ruDict.cmdBrands },
       { command: 'reports', description: ruDict.cmdReports },
+      { command: 'discounts', description: ruDict.cmdDiscounts },
       { command: 'language', description: ruDict.cmdLanguage },
       { command: 'help', description: ruDict.cmdHelp },
     ]);
@@ -191,6 +203,7 @@ export async function setupBotMetadata() {
       '• Instant order notifications\n' +
       '• One-tap order status management\n' +
       '• Brand catalog with real-time stock & prices\n' +
+      '• Brand discounts and promotional scheduling\n' +
       '• Financial analytics and sales reporting\n' +
       '• Multi-store support with strict isolation'
     );
@@ -219,6 +232,37 @@ function buildStorePickerKeyboard(
     keyboard.text(`🏪 ${st.name}`, callback).row();
   }
   return keyboard;
+}
+
+/**
+ * Helper to build the main menu inline keyboard for a specific store.
+ * Shows the Discounts button only when brand discounts are configured for this store.
+ */
+function buildStoreMainMenuKeyboard(
+  store: Pick<Store, 'name' | 'url' | 'wpUserEncrypted' | 'wpAppPasswordEncrypted'>,
+  lang: SupportedLanguage,
+  hasMultipleStores = false
+): InlineKeyboard {
+  const dict = t(lang);
+  const slug = encodeURIComponent(store.name.toLowerCase());
+  const kb = new InlineKeyboard()
+    .text(dict.btnOrders, `ordm:${slug}`)
+    .text(dict.btnReports, `rep:${slug}:month`)
+    .row()
+    .text(dict.btnBrands, `brp:${slug}:1`);
+
+  if (hasStoreWpBrandSaleConfig(store)) {
+    kb.text(dict.btnDiscounts, `s:m:${slug}`);
+    kb.row().text(dict.btnLanguage, 'menu_language');
+  } else {
+    kb.text(dict.btnLanguage, 'menu_language');
+  }
+
+  if (hasMultipleStores) {
+    kb.row().text(dict.btnSwitchStore, 'stores_menu');
+  }
+
+  return kb;
 }
 
 /**
@@ -600,14 +644,8 @@ bot.command('start', async (ctx) => {
     // Show menu for newly connected store
     const lang = await getUserLanguage(chatId, ctx.from?.language_code);
     const dict = t(lang);
-    const storeSlug = encodeURIComponent(store.name.toLowerCase());
-
-    const menuKeyboard = new InlineKeyboard()
-      .text(dict.btnOrders, `ordm:${storeSlug}`)
-      .text(dict.btnReports, `rep:${storeSlug}:month`)
-      .row()
-      .text(dict.btnBrands, `brp:${storeSlug}:1`)
-      .text(dict.btnLanguage, 'menu_language');
+    const accessibleStoresAfterInvite = await getAccessibleStoresForChat(chatId);
+    const menuKeyboard = buildStoreMainMenuKeyboard(store, lang, accessibleStoresAfterInvite.length > 1);
 
     await ctx.reply(
       `🎉 <b>${dict.welcomeConnected}</b>\n\n` +
@@ -630,14 +668,7 @@ bot.command('start', async (ctx) => {
 
   if (accessibleStores.length === 1) {
     const store = accessibleStores[0];
-    const storeSlug = encodeURIComponent(store.name.toLowerCase());
-
-    const menuKeyboard = new InlineKeyboard()
-      .text(dict.btnOrders, `ordm:${storeSlug}`)
-      .text(dict.btnReports, `rep:${storeSlug}:month`)
-      .row()
-      .text(dict.btnBrands, `brp:${storeSlug}:1`)
-      .text(dict.btnLanguage, 'menu_language');
+    const menuKeyboard = buildStoreMainMenuKeyboard(store, lang, false);
 
     const welcomeHeader =
       `${dict.welcomeTitle}\n\n` +
@@ -859,8 +890,8 @@ bot.command('help', async (ctx) => {
   });
 });
 
-// Admin-only brand discounts menu (/discounts and s:* callbacks)
-registerSaleHandlers(bot);
+// Multi-store brand discounts menu (/discounts [store] and s:* callbacks)
+registerSaleHandlers(bot, undefined, undefined, { registerResetMiddleware: false });
 
 interface SearchCacheEntry {
   products: WooProduct[];
@@ -1093,13 +1124,7 @@ bot.callbackQuery(/^set_lang:(ru|es|en)$/, async (ctx) => {
 
   const accessibleStores = await getAccessibleStoresForChat(chatId);
   if (accessibleStores.length === 1) {
-    const storeSlug = encodeURIComponent(accessibleStores[0].name.toLowerCase());
-    const menuKeyboard = new InlineKeyboard()
-      .text(dict.btnOrders, `ordm:${storeSlug}`)
-      .text(dict.btnReports, `rep:${storeSlug}:month`)
-      .row()
-      .text(dict.btnBrands, `brp:${storeSlug}:1`)
-      .text(dict.btnLanguage, 'menu_language');
+    const menuKeyboard = buildStoreMainMenuKeyboard(accessibleStores[0], newLang, false);
 
     await ctx.editMessageText(dict.languageChanged, {
       parse_mode: 'HTML',
@@ -1159,18 +1184,7 @@ bot.callbackQuery(/^sel_menu:(\S+)$/, async (ctx) => {
   try {
     const store = await resolveStore(chatId, storeSlug, lang);
     const accessibleStores = await getAccessibleStoresForChat(chatId);
-    const slug = encodeURIComponent(store.name.toLowerCase());
-
-    const menuKeyboard = new InlineKeyboard()
-      .text(dict.btnOrders, `ordm:${slug}`)
-      .text(dict.btnReports, `rep:${slug}:month`)
-      .row()
-      .text(dict.btnBrands, `brp:${slug}:1`)
-      .text(dict.btnLanguage, 'menu_language');
-
-    if (accessibleStores.length > 1) {
-      menuKeyboard.row().text(dict.btnSwitchStore, 'stores_menu');
-    }
+    const menuKeyboard = buildStoreMainMenuKeyboard(store.rawStore, lang, accessibleStores.length > 1);
 
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(

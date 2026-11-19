@@ -179,6 +179,7 @@ export interface CommonTranslations {
   cmdOrders: string;
   cmdBrands: string;
   cmdReports: string;
+  cmdDiscounts: string;
   cmdHelp: string;
   cmdLanguage: string;
   // Multi-store and Selection UI

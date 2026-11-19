@@ -1,8 +1,12 @@
 import type { SupportedLanguage } from './types.js';
 
 export interface SaleTranslations {
+  btnDiscounts: string;
+  salePickerTitle: string;
   saleMenuTitle: string;
   saleNotConfigured: string;
+  saleNotConfiguredForUser: string;
+  saleNotConfiguredForStore: (storeName: string) => string;
   btnSaleCurrent: string;
   btnSaleNew: string;
   btnSaleResumeDraft: string;
@@ -90,8 +94,15 @@ export interface SaleTranslations {
 
 export const saleTranslations: Record<SupportedLanguage, SaleTranslations> = {
   ru: {
+    btnDiscounts: '🔥 Скидки',
+    salePickerTitle: 'Скидки по брендам',
     saleMenuTitle: '🏷 <b>Скидки по брендам</b>\n\nВыберите действие:',
-    saleNotConfigured: '⚠️ Меню скидок не настроено: задайте WP_URL, WP_USER и WP_APP_PASSWORD.',
+    saleNotConfigured:
+      '⚠️ Меню скидок не настроено ни для одного магазина. Настройте WP-доступ через <code>npm run store:discounts -- --store &lt;slug&gt;</code> или задайте WP_URL, WP_USER и WP_APP_PASSWORD.',
+    saleNotConfiguredForUser:
+      '⚠️ Скидки по брендам не настроены для ваших магазинов. Обратитесь к администратору.',
+    saleNotConfiguredForStore: (storeName: string) =>
+      `⚠️ Для магазина «<b>${storeName}</b>» не настроено управление скидками.`,
     btnSaleCurrent: '📋 Текущая акция',
     btnSaleNew: '➕ Новая акция',
     btnSaleResumeDraft: '▶️ Продолжить черновик',
@@ -178,8 +189,15 @@ export const saleTranslations: Record<SupportedLanguage, SaleTranslations> = {
   },
 
   es: {
+    btnDiscounts: '🔥 Descuentos',
+    salePickerTitle: 'Descuentos por marca',
     saleMenuTitle: '🏷 <b>Descuentos por marca</b>\n\nElige una acción:',
-    saleNotConfigured: '⚠️ El menú de descuentos no está configurado: define WP_URL, WP_USER y WP_APP_PASSWORD.',
+    saleNotConfigured:
+      '⚠️ El menú de descuentos no está configurado para ninguna tienda. Configura el acceso WP con <code>npm run store:discounts -- --store &lt;slug&gt;</code> o define WP_URL, WP_USER y WP_APP_PASSWORD.',
+    saleNotConfiguredForUser:
+      '⚠️ Los descuentos por marca no están configurados para tus tiendas. Contacta con el administrador.',
+    saleNotConfiguredForStore: (storeName: string) =>
+      `⚠️ La gestión de descuentos no está configurada para la tienda «<b>${storeName}</b>».`,
     btnSaleCurrent: '📋 Promoción actual',
     btnSaleNew: '➕ Nueva promoción',
     btnSaleResumeDraft: '▶️ Continuar borrador',
@@ -266,8 +284,15 @@ export const saleTranslations: Record<SupportedLanguage, SaleTranslations> = {
   },
 
   en: {
+    btnDiscounts: '🔥 Discounts',
+    salePickerTitle: 'Brand discounts',
     saleMenuTitle: '🏷 <b>Brand discounts</b>\n\nChoose an action:',
-    saleNotConfigured: '⚠️ Discounts menu is not configured: set WP_URL, WP_USER and WP_APP_PASSWORD.',
+    saleNotConfigured:
+      '⚠️ Discounts menu is not configured for any store. Configure WP credentials via <code>npm run store:discounts -- --store &lt;slug&gt;</code> or set WP_URL, WP_USER and WP_APP_PASSWORD.',
+    saleNotConfiguredForUser:
+      '⚠️ Brand discounts are not configured for your stores. Please contact the administrator.',
+    saleNotConfiguredForStore: (storeName: string) =>
+      `⚠️ Brand discounts management is not configured for store "<b>${storeName}</b>".`,
     btnSaleCurrent: '📋 Current sale',
     btnSaleNew: '➕ New sale',
     btnSaleResumeDraft: '▶️ Resume draft',
