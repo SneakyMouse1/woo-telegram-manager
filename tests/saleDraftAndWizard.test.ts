@@ -18,9 +18,12 @@ import {
 } from '../src/bot/sale/saleDraft.js';
 import {
   formatWpError,
+  PRESET_PERCENTS,
   renderCurrentSale,
+  renderEditBrandCard,
   renderWizardConfirm,
   renderWizardPickBrands,
+  renderWizardPickPercent,
   renderWizardReplaceWarning,
   type SaleStoreViewCtx,
 } from '../src/bot/sale/saleFormatter.js';
@@ -124,6 +127,35 @@ test('buildDiscountsFromGroups and toggleDraftBrand forbid brand overlap across 
     '661': 50,
     '700': 30,
   });
+});
+
+test('PRESET_PERCENTS exposes 10, 15, 20, 25, 30, 50 in wizard and edit brand card with custom % option', () => {
+  assert.deepEqual([...PRESET_PERCENTS], [10, 15, 20, 25, 30, 50]);
+
+  const wizardView = renderWizardPickPercent(createInitialDraft(), {}, STORE_A, 'ru');
+  const wizardRows = wizardView.reply_markup.inline_keyboard;
+  assert.deepEqual(
+    wizardRows[0].map((b) => ('callback_data' in b ? b.callback_data : undefined)),
+    ['s:npct:shop-a:10', 's:npct:shop-a:15', 's:npct:shop-a:20']
+  );
+  assert.deepEqual(
+    wizardRows[1].map((b) => ('callback_data' in b ? b.callback_data : undefined)),
+    ['s:npct:shop-a:25', 's:npct:shop-a:30', 's:npct:shop-a:50']
+  );
+  assert.equal('callback_data' in wizardRows[2][0] ? wizardRows[2][0].callback_data : undefined, 's:npc:shop-a');
+
+  const editView = renderEditBrandCard('665', 'Alpha', 15, 2, STORE_A, 'ru');
+  const editRows = editView.reply_markup.inline_keyboard;
+  assert.deepEqual(
+    editRows[0].map((b) => ('callback_data' in b ? b.callback_data : undefined)),
+    ['s:ebp:shop-a:665:10', 's:ebp:shop-a:665:15', 's:ebp:shop-a:665:20']
+  );
+  assert.deepEqual(
+    editRows[1].map((b) => ('callback_data' in b ? b.callback_data : undefined)),
+    ['s:ebp:shop-a:665:25', 's:ebp:shop-a:665:30', 's:ebp:shop-a:665:50']
+  );
+  assert.equal(editRows[0][1].text, '• −15% •');
+  assert.equal('callback_data' in editRows[2][0] ? editRows[2][0].callback_data : undefined, 's:ebc:shop-a:665');
 });
 
 test('renderWizardPickBrands paginates 20 brands per page in 2 columns, marks ✅ and 🔒, and keeps callback_data <= 64 bytes', () => {

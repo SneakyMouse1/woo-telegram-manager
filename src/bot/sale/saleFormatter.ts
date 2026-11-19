@@ -12,7 +12,7 @@ import {
 } from './saleDraft.js';
 import { getSaleStatus, groupByPercent, saleBrandNames, SaleEditError } from './saleLogic.js';
 
-export const PRESET_PERCENTS = [25, 30, 35, 40, 45, 50] as const;
+export const PRESET_PERCENTS = [10, 15, 20, 25, 30, 50] as const;
 const BRANDS_PER_EDIT_PAGE = 20;
 const MAX_LINES_SHOWN = 60;
 

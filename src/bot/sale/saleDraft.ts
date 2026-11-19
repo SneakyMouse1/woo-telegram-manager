@@ -18,7 +18,7 @@ export const draftGroupSchema = z.object({
 export type DraftGroup = z.infer<typeof draftGroupSchema>;
 
 export const draftStepSchema = z.enum([
-  'pick_pct', // Step 1: choose discount % (25/30/35/40/45/50 or custom)
+  'pick_pct', // Step 1: choose discount % (10/15/20/25/30/50 or custom)
   'await_custom_pct', // Step 1b: waiting for typed 1..90
   'pick_brands', // Step 2: toggle brands for currentPct (20 per page, 2 cols)
   'ask_more_groups', // Step 3: "Add another group?" Yes / No
